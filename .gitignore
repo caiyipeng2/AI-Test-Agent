@@ -1,0 +1,34 @@
+# Local project intelligence and task evidence
+.codegraph/
+artifacts/
+outputs/
+.local/
+.env
+.env.*
+!.env.example
+*.local.json
+*.local.yaml
+
+# Runtime caches and environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+node_modules/
+
+# Game builds, signatures and unredacted captures
+*.apk
+*.apks
+*.aab
+*.keystore
+*.jks
+*.p12
+*.pem
+*.log
+logcat*.txt
+device-spec*.json
+
+# Editor state
+.vs/
+.idea/
+Thumbs.db
