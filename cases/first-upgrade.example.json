@@ -1,0 +1,21 @@
+{
+  "case_id": "CASE-FIRST-DEVICE-UPGRADE",
+  "requirement_id": "REQ-UPGRADE-JOINT-EVIDENCE",
+  "source_ref": "user-approved joint screenshot, currency and device-level acceptance",
+  "approved": true,
+  "steps": [
+    "Observe the selected device in single-upgrade mode and record precise level, coins and price",
+    "Capture before screenshot and identify any concurrent currency transactions",
+    "Execute one short tap on the observed upgrade control, without retry",
+    "Capture after screenshot and evaluate level, precise currency and visual target jointly",
+    "After the test, delete only the selected test account inside the game and verify a new baseline"
+  ],
+  "expectation": {
+    "target_id": "configured-runtime-device",
+    "level_delta": 1,
+    "cost": null,
+    "non_upgrade_delta": null,
+    "approved": true
+  },
+  "note": "Template only. Bind cost, target and currency transaction evidence before execution. Null is unknown and cannot pass an assertion."
+}

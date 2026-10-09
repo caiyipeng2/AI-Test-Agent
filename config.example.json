@@ -1,0 +1,12 @@
+{
+  "adb_path": "path/to/adb",
+  "serial": "explicit-test-device-serial",
+  "device_alias": "reference",
+  "package": "com.example.game",
+  "environment": "test",
+  "environment_source": "approved test artifact manifest or runtime verification",
+  "artifact_root": "artifacts",
+  "startup_wait_seconds": 10,
+  "process_check_interval_seconds": 1,
+  "action_wait_seconds": 1
+}
