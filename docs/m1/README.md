@@ -36,7 +36,11 @@ flowchart LR
 $env:PYTHONPATH = "src"
 python -m unittest discover -s tests -p "test_m1*.py" -v
 python -m ai_test_agent analyze-m1 fixtures/m1-source.example.json --output .local/m1-draft.json
+python -m ai_test_agent import-m1 .local/m1-draft.json --output .local/m1-imported.json
 python -m ai_test_agent review-m1 .local/m1-draft.json --output .local/m1-reviewed.json --reviewer qa-owner --decision changes_requested --comment "bind exact independent expectation"
+python -m ai_test_agent promote-m1 .local/m1-reviewed.json --output .local/m1-promotion.json
 ```
 
 approved 只有在人工补齐独立预期并明确审核人后才能为 true。M1 验收通过后，才进入下一阶段；M3 设备自动化仍保持暂停。
+
+`import-m1` 是会话分析导入边界：它不调用模型，也不相信输入文件的“已批准”标记；输入必须重新通过来源哈希、section 锚点、confidence 和审核结构校验。`promote-m1` 只生成 M0 handoff，缺少真实构建、环境、账号和初态绑定时保持 BLOCKED。

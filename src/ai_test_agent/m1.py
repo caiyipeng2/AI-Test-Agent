@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import re
 from copy import deepcopy
+from datetime import datetime, timezone
 
 from .requirements import M1InputError, normalize_source
 
@@ -41,6 +42,24 @@ def _anchor(source, section):
 
 def _confidence(basis="heuristic"):
     return {"level": "low", "score": 0.35, "basis": basis}
+
+
+def _execution_expectation_valid(expectation):
+    if not isinstance(expectation, dict):
+        return False
+    if not isinstance(expectation.get("target_id"), str) or not expectation["target_id"].strip():
+        return False
+    if not isinstance(expectation.get("window_id"), str) or not expectation["window_id"].strip():
+        return False
+    if type(expectation.get("level_delta")) is not int or expectation["level_delta"] != 1:
+        return False
+    for field in ("cost", "non_upgrade_delta"):
+        value = expectation.get(field)
+        if isinstance(value, bool) or not isinstance(value, (str, int)):
+            return False
+        if not re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)", str(value)):
+            return False
+    return True
 
 
 def _normalize_source(source):
@@ -91,14 +110,18 @@ class RuleBasedAnalyzer:
                 "approved": False, "review_status": "DRAFT", "needs_human_review": True,
             })
         if not risks:
-            risks.append({"risk_id": _stable_id("risk", source["source_id"]), "title": "Unclassified source rule risk",
+            fallback_risk = {"risk_id": _stable_id("risk", source["source_id"]), "title": "Unclassified source rule risk",
                           "description": "The source has not been risk-reviewed by a human.", "severity": "unknown",
                           "source_anchors": [_anchor(source, source["sections"][0])], "review_status": "DRAFT",
-                          "confidence": _confidence(), "needs_human_review": True})
-        analysis_id = _stable_id("analysis", f"{source['source_id']}:{source['source_version']}:{self.analyzer_id}")
+                          "confidence": _confidence(), "needs_human_review": True}
+            risks.append(fallback_risk)
+            for case in cases:
+                if not case["risk_ids"]:
+                    case["risk_ids"] = [fallback_risk["risk_id"]]
+        analysis_id = _stable_id("analysis", f"{source['source_id']}:{source['source_version']}:{source['content_sha256']}:{self.analyzer_id}")
         result = {"schema_version": SCHEMA_VERSION, "analysis_id": analysis_id, "analyzer_id": self.analyzer_id,
                   "source": source, "provenance": {"analyzer_id": self.analyzer_id, "mode": "deterministic",
-                  "model_id": None, "prompt_hash": None, "input_digest": analysis_id, "created_at": None},
+                   "model_id": None, "prompt_hash": None, "input_digest": source["content_sha256"], "created_at": None},
                   "questions": [], "coverage_gaps": ["formal acceptance values require human review"],
                   "risks": risks, "testpoints": points, "cases": cases,
                   "review": {"status": "PENDING", "reviewer": None, "decision": None, "comment": None, "history": []},
@@ -148,6 +171,13 @@ def validate_result(result):
     return True
 
 
+def import_result(result):
+    """Import a session/model-produced result only after strict local validation."""
+    result = deepcopy(result)
+    validate_result(result)
+    return result
+
+
 def review_result(result, review):
     result = deepcopy(result)
     validate_result(result)
@@ -157,10 +187,12 @@ def review_result(result, review):
     if decision not in _DECISIONS:
         raise M1ValidationError("decision must be approved, changes_requested or rejected")
     comment = _text(review.get("comment"), "review.comment")
+    if result.get("review", {}).get("decision") == "rejected":
+        raise M1ValidationError("rejected analysis is terminal; create a new revision")
     if decision == "approved":
         for case in result["cases"]:
             expectation = case.get("expectation")
-            if not isinstance(expectation, dict) or not expectation or any(value in (None, "", []) for value in expectation.values()):
+            if not _execution_expectation_valid(expectation):
                 raise M1ValidationError("all case expectations must be independently filled before approval")
     status = {"approved": "APPROVED", "changes_requested": "CHANGES_REQUESTED", "rejected": "REJECTED"}[decision]
     for case in result["cases"]:
@@ -168,24 +200,34 @@ def review_result(result, review):
         case["approved"] = decision == "approved"
         case["needs_human_review"] = decision != "approved"
     history = list(result.get("review", {}).get("history", []))
-    history.append({"reviewer": review["reviewer"], "decision": decision, "comment": comment})
+    history.append({"reviewer": review["reviewer"], "decision": decision, "comment": comment,
+                    "created_at": datetime.now(timezone.utc).isoformat(), "analysis_id": result.get("analysis_id")})
     result["review"] = {"status": "REVIEWED", "reviewer": review["reviewer"], "decision": decision, "comment": comment, "history": history}
     validate_result(result)
     return result
 
 
-def promote_to_m0(result):
+def promote_to_m0(result, bindings=None):
     """Create a blocked M0 handoff envelope without inventing project bindings."""
     validate_result(result)
+    bindings = bindings or {}
     unresolved = []
     if result.get("review", {}).get("decision") != "approved":
         unresolved.append("human_review")
     if any(case.get("expectation", {}).get("target_id") in (None, "") for case in result["cases"]):
         unresolved.append("independent_expectation")
-    unresolved.extend(["build_id", "environment", "device_alias", "account_alias", "initial_state"])
+    unresolved.extend([field for field in ("requirement_id", "build_id", "environment", "device_alias", "account_alias", "initial_state") if not bindings.get(field)])
+    if result["source"].get("permission") != "user-approved":
+        unresolved.append("source_not_authorized")
+    case_drafts = [{**deepcopy(case), "requirement_id": bindings.get("requirement_id"),
+                    "source_id": result["source"]["source_id"], "source_ref": result["source"]["source_ref"],
+                    "build_id": bindings.get("build_id"), "environment": bindings.get("environment"),
+                    "device_alias": bindings.get("device_alias"), "account_alias": bindings.get("account_alias"),
+                    "initial_state": bindings.get("initial_state"), "approved": False}
+                   for case in result["cases"]]
     return {"schema_version": 1, "status": "BLOCKED" if unresolved else "READY_FOR_M0_REVIEW",
             "target_schema": "M0", "analysis_id": result.get("analysis_id"),
             "source_id": result["source"]["source_id"], "source_version": result["source"]["source_version"],
-            "case_drafts": deepcopy(result["cases"]), "risk_drafts": deepcopy(result["risks"]),
+            "case_drafts": case_drafts, "risk_drafts": deepcopy(result["risks"]),
             "testpoint_drafts": deepcopy(result["testpoints"]), "unresolved_bindings": sorted(set(unresolved)),
             "provenance": deepcopy(result.get("provenance"))}

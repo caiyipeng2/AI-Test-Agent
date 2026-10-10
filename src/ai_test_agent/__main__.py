@@ -37,6 +37,12 @@ def main(argv=None):
     m1_review.add_argument('--reviewer', required=True)
     m1_review.add_argument('--decision', choices=['approved', 'changes_requested', 'rejected'], required=True)
     m1_review.add_argument('--comment', required=True)
+    m1_promote = commands.add_parser('promote-m1', help='create a blocked or bound M0 handoff envelope')
+    m1_promote.add_argument('input')
+    m1_promote.add_argument('--output', required=True)
+    m1_import = commands.add_parser('import-m1', help='strictly import a session-generated M1 result')
+    m1_import.add_argument('input')
+    m1_import.add_argument('--output', required=True)
     args = parser.parse_args(argv)
     try:
         if args.command == 'assess-upgrade':
@@ -64,18 +70,35 @@ def main(argv=None):
             result = {'status': 'PASS', 'output': str(Path(args.output).resolve()), 'coverage': report['coverage']}
         elif args.command == 'analyze-m1':
             from .m1 import RuleBasedAnalyzer
-            source = json.loads(Path(args.input).read_text(encoding='utf-8-sig'))
+            from .requirements import read_json
+            source = read_json(args.input)
             result = RuleBasedAnalyzer().analyze(source)
             Path(args.output).parent.mkdir(parents=True, exist_ok=True)
             Path(args.output).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
             result = {'status': 'PASS', 'output': str(Path(args.output).resolve()), 'draft_cases': len(json.loads(Path(args.output).read_text(encoding='utf-8'))['cases'])}
         elif args.command == 'review-m1':
             from .m1 import review_result
-            draft = json.loads(Path(args.input).read_text(encoding='utf-8-sig'))
+            from .requirements import read_json
+            draft = read_json(args.input)
             result_data = review_result(draft, {'reviewer': args.reviewer, 'decision': args.decision, 'comment': args.comment})
             Path(args.output).parent.mkdir(parents=True, exist_ok=True)
             Path(args.output).write_text(json.dumps(result_data, ensure_ascii=False, indent=2), encoding='utf-8')
             result = {'status': 'PASS', 'output': str(Path(args.output).resolve()), 'decision': args.decision}
+        elif args.command == 'promote-m1':
+            from .m1 import promote_to_m0
+            from .requirements import read_json
+            draft = read_json(args.input)
+            handoff = promote_to_m0(draft)
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(json.dumps(handoff, ensure_ascii=False, indent=2), encoding='utf-8')
+            result = {'status': 'PASS', 'handoff_status': handoff['status'], 'output': str(Path(args.output).resolve()), 'unresolved_bindings': handoff['unresolved_bindings']}
+        elif args.command == 'import-m1':
+            from .m1 import import_result
+            from .requirements import read_json
+            imported = import_result(read_json(args.input))
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(json.dumps(imported, ensure_ascii=False, indent=2), encoding='utf-8')
+            result = {'status': 'PASS', 'output': str(Path(args.output).resolve()), 'analysis_id': imported.get('analysis_id')}
         else:
             if not args.config:
                 parser.error('--config is required for device commands')

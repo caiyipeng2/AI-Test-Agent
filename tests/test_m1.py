@@ -71,7 +71,7 @@ class M1Tests(unittest.TestCase):
         with self.assertRaises(M1ValidationError):
             review_result(result, {'reviewer': 'qa-owner', 'decision': 'approved', 'comment': 'approved'})
         for case in result['cases']:
-            case['expectation'] = {'cost': '3', 'level_delta': 1, 'target_id': 'target-1', 'window_id': 'upgrade'}
+            case['expectation'] = {'cost': '3', 'non_upgrade_delta': '0', 'level_delta': 1, 'target_id': 'target-1', 'window_id': 'upgrade'}
         reviewed = review_result(result, {'reviewer': 'qa-owner', 'decision': 'approved', 'comment': 'approved'})
         self.assertTrue(all(case['approved'] for case in reviewed['cases']))
         self.assertTrue(all(case['review_status'] == 'APPROVED' for case in reviewed['cases']))
