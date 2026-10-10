@@ -43,6 +43,14 @@ def main(argv=None):
     m1_import = commands.add_parser('import-m1', help='strictly import a session-generated M1 result')
     m1_import.add_argument('input')
     m1_import.add_argument('--output', required=True)
+    m1_record = commands.add_parser('record-m1-result', help='append one device-free manual result to an M1 analysis')
+    m1_record.add_argument('analysis')
+    m1_record.add_argument('result')
+    m1_record.add_argument('--output', required=True)
+    m1_gaps = commands.add_parser('report-m1-gaps', help='report M1 coverage gaps and normalize historical defects')
+    m1_gaps.add_argument('input', help='M1 analysis JSON')
+    m1_gaps.add_argument('--defects', help='historical defects JSON array', default=None)
+    m1_gaps.add_argument('--output', required=True)
     args = parser.parse_args(argv)
     try:
         if args.command == 'assess-upgrade':
@@ -99,6 +107,32 @@ def main(argv=None):
             Path(args.output).parent.mkdir(parents=True, exist_ok=True)
             Path(args.output).write_text(json.dumps(imported, ensure_ascii=False, indent=2), encoding='utf-8')
             result = {'status': 'PASS', 'output': str(Path(args.output).resolve()), 'analysis_id': imported.get('analysis_id')}
+        elif args.command == 'record-m1-result':
+            from .m1_results import record_manual_result
+            from .requirements import read_json
+            recorded = record_manual_result(read_json(args.analysis), read_json(args.result))
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(json.dumps(recorded, ensure_ascii=False, indent=2), encoding='utf-8')
+            result = {
+                'status': 'PASS',
+                'output': str(Path(args.output).resolve()),
+                'analysis_id': recorded.get('analysis_id'),
+                'result_count': len(recorded.get('result_history', [])),
+            }
+        elif args.command == 'report-m1-gaps':
+            from .m1_gaps import normalize_gap_report
+            from .requirements import read_json
+            analysis = read_json(args.input)
+            defects = read_json(args.defects) if args.defects else []
+            gap_report = normalize_gap_report(analysis, defects)
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(json.dumps(gap_report, ensure_ascii=False, indent=2), encoding='utf-8')
+            result = {
+                'status': 'PASS' if not gap_report['blocked_reason'] else 'BLOCKED',
+                'output': str(Path(args.output).resolve()),
+                'analysis_id': gap_report['analysis_id'],
+                'blocked_reason': gap_report['blocked_reason'],
+            }
         else:
             if not args.config:
                 parser.error('--config is required for device commands')
