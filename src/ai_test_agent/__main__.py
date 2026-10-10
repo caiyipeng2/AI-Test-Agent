@@ -22,6 +22,12 @@ def main(argv=None):
     assess.add_argument('--output', required=True)
     validate = commands.add_parser('validate-case', help='validate an approved requirement/case contract')
     validate.add_argument('input')
+    m0_validate = commands.add_parser('validate-m0', help='validate the device-free M0 registry')
+    m0_validate.add_argument('input')
+    m0_report = commands.add_parser('report-m0', help='export M0 coverage and traceability JSON')
+    m0_report.add_argument('input')
+    m0_report.add_argument('--output', required=True)
+    m0_report.add_argument('--run-id')
     args = parser.parse_args(argv)
     try:
         if args.command == 'assess-upgrade':
@@ -36,6 +42,17 @@ def main(argv=None):
             from .contracts import validate_case
             errors = validate_case(json.loads(Path(args.input).read_text(encoding='utf-8-sig')))
             result = {'status': 'BLOCKED' if errors else 'PASS', 'errors': errors}
+        elif args.command == 'validate-m0':
+            from .m0 import M0Registry
+            registry = M0Registry.load(args.input)
+            result = {'status': 'PASS', 'coverage': registry.coverage_report(), 'errors': []}
+        elif args.command == 'report-m0':
+            from .m0 import M0Registry
+            registry = M0Registry.load(args.input)
+            report = registry.report(args.run_id)
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+            result = {'status': 'PASS', 'output': str(Path(args.output).resolve()), 'coverage': report['coverage']}
         else:
             if not args.config:
                 parser.error('--config is required for device commands')

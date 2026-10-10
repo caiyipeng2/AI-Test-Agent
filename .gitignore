@@ -3,6 +3,8 @@
 artifacts/
 outputs/
 .local/
+tmp*/
+test-tmp-root/
 .env
 .env.*
 !.env.example

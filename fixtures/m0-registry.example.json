@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-10-10T01:00:00+00:00",
+  "updated_at": "2026-10-10T01:00:00+00:00",
+  "project": {"project_id": "idle-outpost", "name": "Idle Outpost"},
+  "sources": {
+    "source-20261010-first-upgrade": {
+      "source_id": "source-20261010-first-upgrade",
+      "source_ref": "user-approved/first-upgrade-joint-acceptance",
+      "source_version": "2026-10-10",
+      "permission": "user-approved",
+      "excerpt": "Before and after snapshots plus exact coin transaction and device level"
+    }
+  },
+  "builds": {
+    "build-v65-test-2112": {
+      "build_id": "build-v65-test-2112",
+      "artifact_type": "apks",
+      "artifact_path": "local-only://test-v65-2112.apks",
+      "artifact_sha256": "8bed1adce30bf989c712fbcd59dbe36251e1c39eda139e0b292a5976f5c69fbf",
+      "package_name": "com.example.game",
+      "version_code": 65,
+      "version_name": "2.1.1",
+      "environment": "test",
+      "environment_source": "approved packaged configuration",
+      "runtime": {"server": "TestServer", "resource_version": "995", "dll_version": "unknown", "verified": true}
+    }
+  },
+  "requirements": {
+    "req-first-upgrade": {
+      "requirement_id": "req-first-upgrade",
+      "source_id": "source-20261010-first-upgrade",
+      "title": "First device upgrade",
+      "status": "approved",
+      "version": 1,
+      "acceptance_ref": "source-20261010-first-upgrade"
+    }
+  },
+  "risks": {
+    "risk-concurrent-income": {"risk_id": "risk-concurrent-income", "requirement_id": "req-first-upgrade", "severity": "high", "description": "passive income can mask a coin deduction"}
+  },
+  "testpoints": {
+    "point-first-upgrade": {"testpoint_id": "point-first-upgrade", "requirement_id": "req-first-upgrade", "risk_id": "risk-concurrent-income", "title": "joint screenshot, level and coin evidence"}
+  },
+  "cases": {
+    "case-first-upgrade-v1": {
+      "case_id": "case-first-upgrade-v1",
+      "requirement_id": "req-first-upgrade",
+      "source_id": "source-20261010-first-upgrade",
+      "source_ref": "user-approved/first-upgrade-joint-acceptance",
+      "version": 1,
+      "scenario_id": "scenario-first-upgrade",
+      "risk_id": "risk-concurrent-income",
+      "testpoint_id": "point-first-upgrade",
+      "reviewer": "test-owner",
+      "reviewed_at": "2026-10-10T01:00:00+00:00",
+      "max_wait_seconds": 30,
+      "approved": true,
+      "build_id": "build-v65-test-2112",
+      "environment": "test",
+      "device_alias": "reference-device",
+      "account_alias": "test-account-1",
+      "initial_state": {"progress": "new-user", "ready": true, "save_confirmed": false},
+      "steps": ["Observe target", "Capture before state", "Single short tap", "Capture after state"],
+      "expectation": {"target_id": "device-1", "window_id": "first-upgrade", "level_delta": 1, "cost": "3", "non_upgrade_delta": "0", "approved": true},
+      "recovery": {"method": "in-game-delete-account", "approved": true}
+    }
+  },
+  "runs": {
+    "run-m0-planned": {
+      "run_id": "run-m0-planned",
+      "created_at": "2026-10-10T01:00:00+00:00",
+      "attempt_id": "attempt-m0-1",
+      "case_id": "case-first-upgrade-v1",
+      "build_id": "build-v65-test-2112",
+      "environment": "test",
+      "device_alias": "reference-device",
+      "account_alias": "test-account-1",
+      "initial_state": {"progress": "new-user", "ready": true, "save_confirmed": false},
+      "status": "BLOCKED",
+      "blocked_reasons": ["M0 fixture only; no device execution belongs to M0"],
+      "evidence_ids": ["evidence-m0-planned"],
+      "defect_ids": []
+    }
+  },
+  "evidence": {
+    "evidence-m0-planned": {
+      "evidence_id": "evidence-m0-planned",
+      "run_id": "run-m0-planned",
+      "attempt_id": "attempt-m0-1",
+      "kind": "scenario-contract",
+      "path": "local-only://m0-contract",
+      "status": "PLANNED",
+      "sha256": null,
+      "retention": "run+30d",
+      "collected_at": null
+    }
+  },
+  "defects": {}
+}
