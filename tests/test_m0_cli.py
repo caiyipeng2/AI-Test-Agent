@@ -16,8 +16,8 @@ class M0CliTests(unittest.TestCase):
             self.assertEqual(report['coverage']['planned_cases'], 1)
             self.assertEqual(report['coverage']['blocked_cases'], 1)
             self.assertEqual(report['traceability'][0]['trace'], [
-                'source-20261010-first-upgrade', 'req-first-upgrade', 'point-first-upgrade',
-                'case-first-upgrade-v1', 'build-v65-test-2112', 'run-m0-planned', 'attempt-m0-1'])
+                'source-example-scenario', 'req-example-scenario', 'point-example',
+                'case-example-v1', 'build-example-test', 'run-m0-planned', 'attempt-m0-1'])
         finally:
             if output.exists():
                 output.unlink()
