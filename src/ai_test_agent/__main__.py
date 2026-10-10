@@ -28,6 +28,15 @@ def main(argv=None):
     m0_report.add_argument('input')
     m0_report.add_argument('--output', required=True)
     m0_report.add_argument('--run-id')
+    m1_analyze = commands.add_parser('analyze-m1', help='create device-free source-anchored M1 drafts')
+    m1_analyze.add_argument('input')
+    m1_analyze.add_argument('--output', required=True)
+    m1_review = commands.add_parser('review-m1', help='apply an explicit human review decision to M1 drafts')
+    m1_review.add_argument('input')
+    m1_review.add_argument('--output', required=True)
+    m1_review.add_argument('--reviewer', required=True)
+    m1_review.add_argument('--decision', choices=['approved', 'changes_requested', 'rejected'], required=True)
+    m1_review.add_argument('--comment', required=True)
     args = parser.parse_args(argv)
     try:
         if args.command == 'assess-upgrade':
@@ -53,6 +62,20 @@ def main(argv=None):
             Path(args.output).parent.mkdir(parents=True, exist_ok=True)
             Path(args.output).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
             result = {'status': 'PASS', 'output': str(Path(args.output).resolve()), 'coverage': report['coverage']}
+        elif args.command == 'analyze-m1':
+            from .m1 import RuleBasedAnalyzer
+            source = json.loads(Path(args.input).read_text(encoding='utf-8-sig'))
+            result = RuleBasedAnalyzer().analyze(source)
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
+            result = {'status': 'PASS', 'output': str(Path(args.output).resolve()), 'draft_cases': len(json.loads(Path(args.output).read_text(encoding='utf-8'))['cases'])}
+        elif args.command == 'review-m1':
+            from .m1 import review_result
+            draft = json.loads(Path(args.input).read_text(encoding='utf-8-sig'))
+            result_data = review_result(draft, {'reviewer': args.reviewer, 'decision': args.decision, 'comment': args.comment})
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.output).write_text(json.dumps(result_data, ensure_ascii=False, indent=2), encoding='utf-8')
+            result = {'status': 'PASS', 'output': str(Path(args.output).resolve()), 'decision': args.decision}
         else:
             if not args.config:
                 parser.error('--config is required for device commands')
