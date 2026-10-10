@@ -30,7 +30,7 @@ flowchart LR
 
 结果还会记录 analysis_id、分析器版本、输入摘要、confidence、coverage_gaps 和 review history。相同来源内容哈希、分析器版本会产生稳定 ID，来源内容变化会生成新的分析结果。
 
-M1 同时支持两种输入：离线规则基线和本次会话生成的 session_ai 结构化结果。session_ai 结果只能通过 import-m1 严格导入，不能把 JSON 中的 approved 标记当成真实审核。
+M1 同时支持两种输入：离线规则基线和本次会话生成的 session_ai 结构化结果。两者都必须通过 import-m1 严格导入；不能把 JSON 中的 approved 标记当成真实审核。
 
 promote-m1 有两种结果：没有真实 M0 绑定时生成 BLOCKED handoff；提供 build、环境、设备别名、账号别名、初始状态和 M0Registry 后，才会生成可再次由 M0 校验的 draft case，且不会创建 run。
 
