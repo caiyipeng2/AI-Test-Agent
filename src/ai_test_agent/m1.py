@@ -195,18 +195,33 @@ def validate_result(result):
                     raise M1ValidationError(f"{collection} contains stale source anchor")
             if "source_anchors" in item and "anchors" in item and item["source_anchors"] != item["anchors"]:
                 raise M1ValidationError(f"{collection} anchor aliases differ")
+    anchor_ids = lambda item: {anchor["section_id"] for anchor in item.get("source_anchors", item.get("anchors", []))}
     for item in reqs:
         if not _text(item.get("title"), "requirement.title") or not _text(item.get("rule"), "requirement.rule") or type(item.get("version")) is not int or item["version"] < 1:
             raise M1ValidationError("requirement fields are invalid")
     for item in risks:
         if not _text(item.get("description"), "risk.description") or item.get("requirement_id") not in req_ids or item.get("severity") not in {"low", "medium", "high", "unknown"}:
             raise M1ValidationError("risk mapping is invalid")
+        requirement = next(req for req in reqs if req["requirement_id"] == item["requirement_id"])
+        if anchor_ids(item) != anchor_ids(requirement):
+            raise M1ValidationError("risk source mapping is inconsistent")
     for item in points:
         if not _text(item.get("title"), "testpoint.title") or item.get("requirement_id") not in req_ids or item.get("risk_id") not in risk_ids or item.get("category") not in _CATEGORIES:
             raise M1ValidationError("testpoint mapping is invalid")
+        requirement = next(req for req in reqs if req["requirement_id"] == item["requirement_id"])
+        risk = next(risk for risk in risks if risk["risk_id"] == item["risk_id"])
+        if item.get("requirement_id") != risk.get("requirement_id") or anchor_ids(item) != anchor_ids(requirement) or anchor_ids(item) != anchor_ids(risk):
+            raise M1ValidationError("testpoint source mapping is inconsistent")
     for case in cases:
         if any(case.get(field) not in ids for field, ids in (("requirement_id", req_ids), ("risk_id", risk_ids), ("testpoint_id", point_ids))):
             raise M1ValidationError("case mapping is invalid")
+        requirement = next(req for req in reqs if req["requirement_id"] == case["requirement_id"])
+        risk = next(risk for risk in risks if risk["risk_id"] == case["risk_id"])
+        point = next(point for point in points if point["testpoint_id"] == case["testpoint_id"])
+        if (risk.get("requirement_id") != case["requirement_id"] or point.get("requirement_id") != case["requirement_id"]
+                or point.get("risk_id") != case["risk_id"] or anchor_ids(case) != anchor_ids(requirement)
+                or anchor_ids(case) != anchor_ids(risk) or anchor_ids(case) != anchor_ids(point)):
+            raise M1ValidationError("case source mapping is inconsistent")
         if not _text(case.get("title"), "case.title") or type(case.get("version")) is not int or case["version"] < 1 or not isinstance(case.get("preconditions"), list) or not isinstance(case.get("steps"), list):
             raise M1ValidationError("case version, preconditions and steps are invalid")
         if any(not isinstance(value, str) or not value.strip() for value in case["preconditions"] + case["steps"]):
@@ -214,9 +229,15 @@ def validate_result(result):
         expectation = case.get("expectation")
         if not isinstance(expectation, dict) or not isinstance(expectation.get("assertions"), list) or not isinstance(expectation.get("unknowns"), list):
             raise M1ValidationError("case expectation is invalid")
+        assertion_ids = set()
         for assertion in expectation["assertions"]:
             if not isinstance(assertion, dict) or not _text(assertion.get("assertion_id"), "assertion_id") or not _text(assertion.get("description"), "assertion.description") or not _text(assertion.get("expected"), "assertion.expected") or not isinstance(assertion.get("evidence_requirements"), list) or any(not isinstance(value, str) or not value.strip() for value in assertion["evidence_requirements"]):
                 raise M1ValidationError("case assertion is invalid")
+            if assertion["assertion_id"] in assertion_ids:
+                raise M1ValidationError("duplicate assertion_id")
+            assertion_ids.add(assertion["assertion_id"])
+        if any(not isinstance(value, str) or not value.strip() for value in expectation["unknowns"]):
+            raise M1ValidationError("case unknowns must contain nonempty strings")
         recovery = case.get("recovery")
         if not isinstance(recovery, dict) or not _text(recovery.get("method"), "recovery.method") or type(recovery.get("approved")) is not bool:
             raise M1ValidationError("case recovery is invalid")
@@ -250,10 +271,14 @@ def validate_result(result):
     review = result.get("review")
     if not isinstance(review, dict) or review.get("status") not in {"PENDING", "REVIEWED"} or not isinstance(review.get("history", []), list):
         raise M1ValidationError("review record is invalid")
+    if review.get("status") == "REVIEWED" and not review.get("history"):
+        raise M1ValidationError("reviewed result requires review history")
     for entry in review.get("history", []):
-        if not all(_text(entry.get(key), "review history") for key in ("reviewer", "created_at", "comment", "decision")) or entry["decision"] not in _DECISIONS or not isinstance(entry.get("affected_case_ids"), list):
+        if (not all(_text(entry.get(key), "review history") for key in ("reviewer", "created_at", "comment", "decision"))
+                or entry["decision"] not in _DECISIONS or not isinstance(entry.get("affected_case_ids"), list)
+                or not entry["affected_case_ids"] or any(case_id not in case_ids for case_id in entry["affected_case_ids"])):
             raise M1ValidationError("review history entry is invalid")
-        if "reviewed_digest" in entry and (not isinstance(entry["reviewed_digest"], str) or len(entry["reviewed_digest"]) != 64):
+        if not isinstance(entry.get("reviewed_digest"), str) or len(entry["reviewed_digest"]) != 64:
             raise M1ValidationError("review history digest is invalid")
     if source.get("permission") != "user-approved" and any(case["approved"] for case in cases):
         raise M1ValidationError("unverified source cannot contain approved cases")
@@ -271,7 +296,8 @@ def import_result(result):
 def analyze_with_provider(source, provider):
     if provider is None:
         raise M1ValidationError("provider output is required")
-    output = provider if isinstance(provider, dict) else provider.analyze(source) if hasattr(provider, "analyze") else provider.generate(source) if hasattr(provider, "generate") else provider(source) if callable(provider) else None
+    normalized = _source(source)
+    output = provider if isinstance(provider, dict) else provider.analyze(deepcopy(normalized)) if hasattr(provider, "analyze") else provider.generate(deepcopy(normalized)) if hasattr(provider, "generate") else provider(deepcopy(normalized)) if callable(provider) else None
     if output is None:
         raise M1ValidationError("provider must supply a session result")
     result = deepcopy(output)
@@ -290,8 +316,8 @@ def review_result(result, review):
     if not isinstance(reviewer, str) or not reviewer.strip() or not isinstance(comment, str) or not comment.strip() or decision not in _DECISIONS:
         raise M1ValidationError("reviewer, comment and decision are required")
     all_case_ids = {case["case_id"] for case in candidate["cases"]}
-    selected = review.get("case_ids", list(all_case_ids))
-    if not isinstance(selected, list) or not selected or any(case_id not in all_case_ids for case_id in selected):
+    selected = review.get("case_ids", [case["case_id"] for case in candidate["cases"]])
+    if not isinstance(selected, list) or not selected or len(set(selected)) != len(selected) or any(case_id not in all_case_ids for case_id in selected):
         raise M1ValidationError("review case_ids are invalid")
     reviewed_at = _now()
     for case in candidate["cases"]:
@@ -335,6 +361,14 @@ def promote_to_m0(result, bindings=None, registry=None):
     bindings = {} if bindings is None else deepcopy(bindings)
     required = ("build_id", "environment", "device_alias", "account_alias", "initial_state", "max_wait_seconds")
     unresolved = [field for field in required if field not in bindings or bindings[field] in (None, "", {}, [])]
+    for field in ("build_id", "environment", "device_alias", "account_alias"):
+        if field in bindings and (not isinstance(bindings[field], str) or not bindings[field].strip()):
+            unresolved.append(field)
+    if "initial_state" in bindings and (not isinstance(bindings["initial_state"], dict) or not bindings["initial_state"]):
+        unresolved.append("initial_state")
+    wait = bindings.get("max_wait_seconds")
+    if wait is not None and (type(wait) not in (int, float) or isinstance(wait, bool) or not math.isfinite(wait) or wait <= 0):
+        unresolved.append("max_wait_seconds")
     if result["source"].get("permission") != "user-approved":
         unresolved.append("source_not_authorized")
     if any(case["review_status"] != "APPROVED" for case in result["cases"]):
@@ -369,6 +403,7 @@ def promote_to_m0(result, bindings=None, registry=None):
             reviewed_at = case["review"]["created_at"]
             reg.register_case(case["case_id"], {"scenario_id": _stable("scenario", case["case_id"]), "risk_id": case["risk_id"], "testpoint_id": case["testpoint_id"], "requirement_id": req_map[case["requirement_id"]], "source_id": source_key, "source_ref": source_ref, "build_id": bindings["build_id"], "version": case["version"], "approved": False, "environment": bindings["environment"], "device_alias": bindings["device_alias"], "account_alias": bindings["account_alias"], "initial_state": bindings["initial_state"], "steps": case["steps"], "expectation": case["expectation"], "recovery": case["recovery"], "reviewer": reviewer, "reviewed_at": reviewed_at, "max_wait_seconds": bindings["max_wait_seconds"]})
             reg.data["cases"][case["case_id"]].setdefault("extensions", {})["m1"] = {"analysis_id": result["analysis_id"], "source_anchors": case["source_anchors"], "review": case["review"]}
+        reg.data.setdefault("extensions", {})["m1"] = {"analysis_id": result["analysis_id"], "provenance": deepcopy(result["provenance"]), "source_content_sha256": result["source"]["content_sha256"]}
         reg.validate()
     except Exception as error:
         return _blocked(result, ["registry_validation:" + str(error)])
@@ -379,4 +414,8 @@ def promote_to_m0(result, bindings=None, registry=None):
 
 def summarize_result(result):
     validate_result(result)
-    return {"analysis_id": result["analysis_id"], "source_id": result["source"]["source_id"], "requirements": len(result["requirements"]), "risks": len(result["risks"]), "testpoints": len(result["testpoints"]), "cases": len(result["cases"]), "approved_cases": sum(case["approved"] for case in result["cases"]), "review_status": result["review"]["status"]}
+    counts = {"requirements": len(result["requirements"]), "risks": len(result["risks"]),
+              "testpoints": len(result["testpoints"]), "cases": len(result["cases"]),
+              "approved_cases": sum(case["approved"] for case in result["cases"])}
+    return {"analysis_id": result["analysis_id"], "source_id": result["source"]["source_id"],
+            **counts, "counts": counts, "review_status": result["review"]["status"]}
