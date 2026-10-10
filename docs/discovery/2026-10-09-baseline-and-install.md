@@ -37,41 +37,39 @@
 
 包体目录：`D:\飞书存储\AAB_Install\AAB_Install`。目录混有其他产品，依据 manifest 与项目包名匹配选择包体，不能仅按全目录更新时间安装。
 
-本轮匹配项目的最新候选：
+用户确认同一版本的两份构建中，文件夹最新的 `21:55` 为正式服，前一个 `21:12` 为测试服。本轮使用包内配置和用户规则共同确认的 `21:12` 测试服包；不能仅按目录更新时间选择。
+
+本轮测试服构建：
 
 | 项目 | 内容 |
 | --- | --- |
-| AAB | `idle_weaponshop_haiwai_v65_2026_09_23_21_55-release.aab` |
-| AAB 修改时间 | 2026-09-23 22:44:37 |
-| AAB 大小 | 350,915,612 字节 |
-| AAB SHA-256 | `01D72F114D51EF7E9DE1ACECCA89AA1B09C95F99B037AD0438158EF29B8A93EC` |
-| APKS | `idle_weaponshop_haiwai_v65_2026_09_23_21_55-release.apks` |
-| APKS 修改时间 | 2026-09-23 22:48:17 |
-| APKS 大小 | 532,648,408 字节 |
-| APKS SHA-256 | `959EA9BFDFE3FA78F6D83A6A83E9C05958C4ADC4B6157C3757C0A63154B92152` |
+| AAB | `idle_weaponshop_haiwai_v65_2026_09_23_21_12-release.aab` |
+| AAB SHA-256 | `2DCE34C22ED05C77DAF63DAE885283442C396D50C32ABF491ED71CCEF8595D80` |
+| APKS | `idle_weaponshop_haiwai_v65_2026_09_23_21_12-release.apks` |
+| APKS SHA-256 | `8BED1ADCEB30F989C712FBCD59DBE36251E1C39EDA139E0B292A5976F5C69FBF` |
 | Manifest | AAB 与 APKS 中的 base master 均为目标包名，versionCode `65`、versionName `2.1.1` |
 | SDK/ABI | minSdk `24`、targetSdk `36`，提供 arm64/v7a 分片 |
 
 同名 AAB/APKS 的元数据一致并不等于已验证所有文件之间的生成关系。未来构建流水线需要记录 AAB→APKS 的生成日志和签名指纹。本轮安装对象是现成 APKS，并未重新打包或签名。
 
+包内 `HwGameConfig` 已核验 `_server=2`（源码枚举 `TestServer`）、资源热更开启、资源版本 `995`；同版本 `21:55` 正式服对照为 `_server=3`、资源版本 `928`。这为测试/正式区分提供了包内证据。
+
 ## 安装实测
 
-两台设备当前均处于 ADB `device` 状态：Samsung SM-S9280（S24 Ultra，API 36，arm64）与 moto g 2025（API 35，arm64）。选择已有主测 S24 Ultra 做本轮更新安装，另一台未操作。设备序列号保存在本地，不进入公开报告。
+两台设备当前均处于 ADB `device` 状态：Samsung SM-S9280（S24 Ultra，API 36，arm64）与 moto g 2025（API 35，arm64）。先在 S24 Ultra 更新过正式候选包，确认测试服规则后在 moto g 2025 更新并运行测试服包；设备序列号保存在本地，不进入公开报告。
 
 | 检查 | 结果 |
 | --- | --- |
-| 安装前参考设备 | versionCode `64`，versionName `2.1.0` |
+| 测试服安装设备 | moto g 2025，API 35，arm64 |
 | 安装工具 | 现有 Java、bundletool.jar、ADB，未安装新依赖 |
 | 安装方式 | `bundletool install-apks --apks=<v65 APKS> --device-id=<reference serial> --adb=<ADB>` |
 | 命令退出码 | `0` |
 | 安装后 `dumpsys package` | versionCode `65`，versionName `2.1.1` |
-| 安装后更新时间（设备报告） | 2026-10-09 16:30:48 |
-| `firstInstallTime` | 仍为 2026-10-08 17:19:59 |
 | 已安装分片 | `base.apk`、`split_UnityDataAssetPack.apk`、`split_config.arm64_v8a.apk` |
 | Activity 解析 | `com.unity3d.player.UnityPlayerActivity` |
 | 数据操作 | 更新安装，没有执行卸载或 `pm clear`；未验证云存档是否发生变化 |
 
-安装状态：**PASS（仅安装层）**。Activity 能解析并不证明实际启动或登录通过。
+安装状态：**PASS（测试服包）**。Activity 能解析并不证明实际启动或登录通过；后续实测报告单独记录运行证据。
 
 APKS 分片选择和部署方式参考 [Android 官方 bundletool 文档](https://developer.android.com/tools/bundletool)。
 
@@ -89,11 +87,16 @@ APKS 分片选择和部署方式参考 [Android 官方 bundletool 文档](https:
 
 游戏仓库 `Reports/AndroidRealDeviceTestContract.md` 和 `AndroidRealDeviceStartupSmoke.md` 记录 2026-09-01 的旧 v63 路线：安装、启动、登录、主界面、打开升级、首次升级。旧探索曾受协议弹窗及游戏内弹窗阻挡，并发现原生 UI hierarchy 只暴露 Unity Game view。本轮没有复用旧结果作为新包通过证据。
 
-尚未验证：
+本报告之后已验证：
 
-1. v65 的启动、实际服务器、账号进度、资源版本及热更 DLL 身份。
-2. v65 是否包含当前 2026-10-09 源码；两者日期不同，缺少构建来源证明。
-3. 当前首次升级的可操作位置、资源门槛和升级前后业务状态。
+1. 测试服启动、实际 `TestServer`、资源版本 `995` 和登录成功。
+2. 游戏内删除账号、退出后宿主重新启动、首屏 UID 变化和新手教程出现。
+
+仍未验证：
+
+1. v65 是否包含当前 2026-10-09 源码；两者日期不同，缺少构建来源证明。
+2. 热更 DLL 的哈希/MVID 身份。
+3. 金币消费流水与放置收益的逐笔对账。
 4. AI 用例生成、Agent 调用、误报分类和评测指标。
 
-进入新手业务操作前，要明确隔离账号、服务器和重置方式。原源码中的测试服配置、包名相同、版本号更新均不足以代替运行时环境验证。
+后续再次进入新手业务操作前，仍需保留测试服、账号删除、服务器和运行版本证据链；本轮已按用户授权完成一次游戏内删号恢复。
