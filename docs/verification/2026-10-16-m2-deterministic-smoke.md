@@ -64,3 +64,23 @@ M0 交接保留草稿注册表及真实外部 M2 run/attempt/证据链。`m0_run
 本地原始复核索引为 `.local/m2-discovery/screenshot-candidate-recheck.json`；每组保存独立核验报告、资产 hash 和测试合同，真实尝试索引为 `.local/m2-discovery/screenshot-recheck/test-v65-17_10-cli.json`。本次没有修改工具代码，348 项回归的实现仍为 `bef7c7c`。
 
 表中描述的是包内配置；当前源码确认 Android 分支直接使用该服务器字段，但当前源码不能代替历史包实际运行时联网证据。若用户提供不同的环境选择机制，需核验其包内代码与运行时证据后再修订判断。
+
+## 红框目标纠正及实机环境诊断
+
+用户随后用红框明确指定 `v66 / 2026-10-13 / 20_12` 的 APKS，替换此前对截图箭头的理解。本轮没有按 v65 方案执行卸载；安装前重新查询 Samsung 时目标游戏已不存在，不能将此状态归因于本工具的卸载动作。
+
+按用户明确选定的文件完成一次独立的安装与环境诊断，未把它作为 M2 自动化执行或环境门禁通过：
+
+| 核查项 | 本轮实测结果 |
+| --- | --- |
+| 指定 APKS 安装 | 成功；实际 versionCode 66 / versionName 2.1.2。 |
+| 设备安装字节身份 | 3 个已装 APK 的实际 SHA-256 均属于用户选定 APKS，base 匹配受支持变体。 |
+| 安装后的实际配置 | 配置资产匹配候选包 hash；`_server=3`，`IsTestResHotfix=false`。 |
+| 当次运行日志 | 在设备时间锚点和当次 PID 范围内输出 `Hot InitRequestUrl Server Type ProduceServer`。 |
+| 画面与操作边界 | 截图显示协议页及 `App:2.1.2 / Res:949`；未点击“继续”，没有执行升级、付费或其他游戏业务操作。 |
+| 诊断结束状态 | 已停止目标进程，另一次只读 PID 查询确认进程不存在。 |
+| M2 结论 | `BLOCKED / RUNTIME_ENVIRONMENT_MISMATCH`；本次安装成功不表示测试服确认或 M2 正向通过。 |
+
+原始证据保存在 `.local/m2-discovery/selected-v66-recheck/`：`installation-diagnostic.json`、`runtime-diagnostic/result.json`、当次日志/截图/UI 与逐文件 SHA-256 索引 `diagnostic-evidence-index.json`。运行日志定位为 `runtime-diagnostic/observation-04.log` 第 1078 行。标准 M2 运行器的环境门禁没有修改；安装诊断没有被伪造成 M2 run、M0 已执行记录或业务通过。
+
+后续需要真正测试环境的构建，或用户提供该候选包切换测试环境的明确机制，再核验实际运行结果。当前游戏包已按最新红框安装，M2 测试服正向验收继续保留阻塞。
