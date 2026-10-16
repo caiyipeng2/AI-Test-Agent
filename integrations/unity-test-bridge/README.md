@@ -1,10 +1,22 @@
 # 只读 Unity 状态与流水桥
 
-这是供专用测试构建接入的模块，未声明已安装到游戏、已完成真实业务适配或通过真机测试。schema1快照入口保持兼容，M3.1新增独立schema2状态/流水发布器；二者均未接入真实游戏Provider。`BridgeCompileSmoke` 和 `ObservationCompileSmoke` 只验证独立合成宿主中的编译、行为和序列化。
+这是供专用测试构建接入的模块，尚未安装进本轮新Android包或通过真实游戏业务验收。schema1快照入口保持兼容，M3.1新增独立schema2状态/流水发布器；M3.2增加IdleOutpost只读适配源码与加载身份，已进行真实源码隔离编译。`BridgeCompileSmoke`和`ObservationCompileSmoke`验证独立合成宿主；实际程序集探测的范围另行记录，不能代替真机运行。
 
 模块没有 socket、业务写接口、自动点击、金币或等级修改。项目适配器显式实现 `IGameTestStateProvider`，仅读取已经存在的状态，调用 `publisher.Install(provider)` 后使用 `PublishOnce()`，或明确指定采样帧间隔。未安装 provider 时不扫描业务对象、不调用业务 getter。
 
 Runtime 文件在 `UNITY_EDITOR || (DEVELOPMENT_BUILD && AI_TEST_AGENT_BRIDGE)` 条件下编译；Development 构建仍需额外设置 `AI_TEST_AGENT_BRIDGE`。已用五种编译符号组合检查二进制中的类型是否按guard出现，实际APK/AAB发布构建是否排除仍须在真实构建流程验证。
+
+## M3.2：显式项目适配与加载身份
+
+`Runtime/`保留游戏无关协议与`GameTestLoadedAssemblyIdentity`；`Adapters/IdleOutpost/`仅维护该项目的只读映射及Bootstrap。迁移游戏时替换适配层和实际加载钩子，审核getter副作用、货币范围、窗口/目标含义及构建方式，宿主协议不依赖特定游戏枚举或默认设备。
+
+`IdleOutpostReadOnlyProvider`只读已初始化缓存与原始存档字典，不调用会插入默认值的业务getter。等级核对运行值与已有存档，成本读取已计算值；钱包保留源double的往返表示，未知不可填0。固定目标未配置时不猜首个设备；窗口不存在、关闭或目标不匹配时target整体不可用。账本保持不可用/不完整，不能用于真实升级扣款通过。
+
+`IdleOutpostBridgeBootstrap.CaptureLoadedAssembly(byte[], string mvid)`必须从实际加载边界收到同一byte[]，核对Bootstrap所在Assembly的MVID，并发布`AI_TEST_LOADED_DLL_JSON:`。`Begin()`只在Editor或Android Development Player、实际TestServer及显式初始化入口下安装Provider；使用隔离编译工具生成的`AiTestAgent.Generated.ProviderBuildStamp.Value`，不提供默认生产stamp。运行目标默认为`0/0`，30帧采样；异步失败、服务器变化和宿主销毁后的重试由回归覆盖。
+
+全部桥源码及调用钩子需使用相同编译guard。桥与适配器放入hotfix程序集，AOT加载钩子使用保留的反射入口，避免反向引用；加载钩子变化需要完整AOT/IL2CPP专用包，不能仅替换旧安装包中的DLL。测试身份stamp、实际DLL SHA/MVID和最终包hash由外部清单关联。
+
+宿主命令为`inspect-provider-m3 INPUT --output PATH.json`。Editor程序集探测只能获得`compiled_assembly_identity`；device记录需实际日志文件及M2已装证据，离线结果仍为`execution=device_free, live_provider=false, business_status=NOT_EVALUATED`。完整字段、结构图、接入步骤和验收清单见[M3.2文档](../../docs/m3/runtime-provider.md)，实际执行见[本轮验证记录](../../docs/verification/2026-10-16-m32-runtime-provider.md)。
 
 ## M3.1 schema2：明确状态与连续流水
 
@@ -16,9 +28,11 @@ publisher.Install(readOnlyProjectProvider);
 publisher.PublishOnce();
 ```
 
-`readOnlyProjectProvider` 必须由项目单独实现和审核，仅返回已经存在的真实业务状态与完整流水；此示意代码不会自动创建正式适配器。publisher拥有schema/session/seq/frame/provider传输字段，不修改Provider返回值，不进行金额换算，不将available、complete或ready自动改为true。
+`readOnlyProjectProvider`必须由项目单独实现和审核，仅返回已经存在的业务状态；未取得完整流水时明确标为不可用或不完整。此示意代码不会自动创建正式适配器。publisher拥有schema/session/seq/frame/provider传输字段，不修改Provider返回值，不进行金额换算，不将available、complete或ready自动改为true。
 
 schema2日志标记为 `AI_TEST_OBSERVATION_JSON:`，根字段精确为 `schema=2, session_id, seq, frame, provider, source, target, wallet, ledger`。DTO包括 `GameTestObservation`、`ObservationTargetSnapshot`、`WalletSnapshot`、`LedgerSnapshot` 和 `LedgerEventSnapshot`；source复用 `RuntimeSource`。
+
+发布器通过固定schema的`GameTestObservationJson.Serialize`输出完整嵌套section/events，避免动态加载程序集时Unity JsonUtility静默省略字段。序列化验收独立解析原始JSON，检查字段/事件齐全及转义/64位整数边界；不能用FromJson默认初始化的空DTO代替原始字段存在性验证。此变化不增加外部库或业务操作。
 
 | 区段 | Provider责任 |
 | --- | --- |

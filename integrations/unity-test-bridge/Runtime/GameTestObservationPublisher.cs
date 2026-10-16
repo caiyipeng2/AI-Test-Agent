@@ -1,5 +1,7 @@
 #if UNITY_EDITOR || (DEVELOPMENT_BUILD && AI_TEST_AGENT_BRIDGE)
 using System;
+using System.Globalization;
+using System.Text;
 using System.Threading;
 using UnityEngine;
 
@@ -117,7 +119,7 @@ namespace AiTestAgent.Bridge
                 source = observation.source, target = observation.target,
                 wallet = observation.wallet, ledger = observation.ledger
             };
-            string message = Marker + JsonUtility.ToJson(envelope);
+            string message = Marker + GameTestObservationJson.Serialize(envelope);
             sequence = nextSequence;
             lastFrame = frame;
             Debug.Log(message);
@@ -128,6 +130,69 @@ namespace AiTestAgent.Bridge
         {
             if (mainThreadId == 0 || Thread.CurrentThread.ManagedThreadId != mainThreadId)
                 throw new InvalidOperationException("Observations must be installed and sampled on the Unity main thread");
+        }
+    }
+
+    // Unity's native serializer can omit nested fields in assemblies loaded from bytes.
+    // This fixed wire schema works in both imported and hot-loaded assemblies.
+    public static class GameTestObservationJson
+    {
+        public static string Serialize(GameTestObservation value)
+        {
+            if (value == null || value.source == null || value.target == null || value.wallet == null ||
+                value.ledger == null || value.ledger.events == null)
+                throw new InvalidOperationException("Explicit observation sections are required");
+            var text = new StringBuilder(1024);
+            text.Append('{'); Field(text, "schema", value.schema); Field(text, "session_id", value.session_id);
+            Field(text, "seq", value.seq); Field(text, "frame", value.frame); Field(text, "provider", value.provider);
+            text.Append("\"source\":{");
+            Field(text, "available", value.source.available); Field(text, "build_id", value.source.build_id);
+            Field(text, "resource_version", value.source.resource_version); Field(text, "dll_version", value.source.dll_version);
+            Field(text, "server", value.source.server); Close(text);
+            text.Append(",\"target\":{");
+            Field(text, "available", value.target.available); Field(text, "target_id", value.target.target_id);
+            Field(text, "window_id", value.target.window_id); Field(text, "level", value.target.level);
+            Field(text, "cost", value.target.cost); Field(text, "ready", value.target.ready); Close(text);
+            text.Append(",\"wallet\":{");
+            Field(text, "available", value.wallet.available); Field(text, "currency_id", value.wallet.currency_id);
+            Field(text, "balance", value.wallet.balance); Close(text);
+            text.Append(",\"ledger\":{");
+            Field(text, "available", value.ledger.available); Field(text, "complete", value.ledger.complete);
+            Field(text, "first_seq", value.ledger.first_seq); Field(text, "last_seq", value.ledger.last_seq);
+            text.Append("\"events\":[");
+            for (int index = 0; index < value.ledger.events.Length; index++)
+            {
+                LedgerEventSnapshot entry = value.ledger.events[index];
+                if (entry == null) throw new InvalidOperationException("Ledger events cannot be null");
+                if (index != 0) text.Append(',');
+                text.Append('{'); Field(text, "seq", entry.seq); Field(text, "transaction_id", entry.transaction_id);
+                Field(text, "operation_id", entry.operation_id); Field(text, "kind", entry.kind);
+                Field(text, "target_id", entry.target_id); Field(text, "currency_id", entry.currency_id);
+                Field(text, "delta", entry.delta); Field(text, "balance_after", entry.balance_after); Close(text);
+            }
+            return text.Append("]}}").ToString();
+        }
+
+        private static void Close(StringBuilder text) { text.Length--; text.Append('}'); }
+        private static void Name(StringBuilder text, string name) { Quote(text, name); text.Append(':'); }
+        private static void Field(StringBuilder text, string name, string value)
+        { Name(text, name); Quote(text, value); text.Append(','); }
+        private static void Field(StringBuilder text, string name, long value)
+        { Name(text, name); text.Append(value.ToString(CultureInfo.InvariantCulture)).Append(','); }
+        private static void Field(StringBuilder text, string name, bool value)
+        { Name(text, name); text.Append(value ? "true," : "false,"); }
+        private static void Quote(StringBuilder text, string value)
+        {
+            if (value == null) { text.Append("null"); return; }
+            text.Append('"');
+            foreach (char character in value)
+            {
+                if (character == '"' || character == '\\') text.Append('\\').Append(character);
+                else if (character < 0x20 || char.IsSurrogate(character))
+                    text.Append("\\u").Append(((int)character).ToString("x4", CultureInfo.InvariantCulture));
+                else text.Append(character);
+            }
+            text.Append('"');
         }
     }
 }

@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-**M0、M1、M2及M3.1均已由用户验收并合并main。** M1处理需求/风险、测试点、用例、人工审核与结果/缺口，支持从原始DOCX直接调用模型生成草稿。M2完成同一合同下两轮实机验证，范围为已批准的场景回调里程碑。M3.1新增schema2状态/流水协议与无设备证据判定；真实游戏Provider、升级操作及五次业务复跑尚未完成，不能视为M3完整完成。
+**M0、M1、M2及M3.1均已由用户验收并合并main；M3.2在独立分支准备验收。** M1支持原始DOCX自动AI分析和人工审核；M2完成批准的场景回调里程碑实机闭环；M3.1提供schema2与无设备状态/流水判定。M3.2新增真实游戏只读Provider源码、运行身份握手及真实源码隔离编译，尚无含新桥的Android专用测试包。真实Provider实机验收、升级及五次业务复跑仍待完成，不能视为M3整体完成。
 
 | 文档 | 用途 |
 | --- | --- |
@@ -19,6 +19,8 @@
 | [M2 验证记录](docs/verification/2026-10-16-m2-deterministic-smoke.md) | 自动回归、真实环境门禁、场景回调里程碑与同参复跑证据及验收入口 |
 | [M3.1 只读状态与流水证据](docs/m3/README.md) | schema2、来源/PID/PNG/事务绑定、精确金额、合成正负例与无设备复跑 |
 | [M3.1 验证记录](docs/verification/2026-10-16-m3-readonly-evidence.md) | Python回归、合成文件流程、Unity Host与编译guard验证及尚未接入边界 |
+| [M3.2 真实Provider与运行身份](docs/m3/runtime-provider.md) | 标准层/项目适配层结构图、只读读取点、加载身份、宿主合同与专用包路径 |
+| [M3.2 验证记录](docs/verification/2026-10-16-m32-runtime-provider.md) | 真实源码编译、输入保全、程序集探测及尚未执行的Android验收边界 |
 
 ## 推荐推进顺序
 
@@ -45,4 +47,6 @@ M2入口为 `m2-smoke --contract PATH`，运行后自动生成同目录 `m0-hand
 
 M3.1入口为 `assess-recording-m3 INPUT --output PATH.json`，读取输入父目录中的实际PNG并导出JSON/Markdown。`python examples/m3_recording_demo.py --output-dir DIR --scenario pass` 可在新目录生成可移植合成样例；场景另支持 `wrong-debit` 和 `missing-event`，三者分别由CLI得到 `PASS/FAIL/BLOCKED`（退出码0/1/2）。PASS只代表记录一致性，固定 `business_status=NOT_EVALUATED`、`execution=device_free`；不创建M0已执行run，也不证明真实游戏升级。来源与独立成本引用仍须由审核者确认。完整命令及验收边界见[M3.1文档](docs/m3/README.md)。
 
-截至2026-10-16，当前Samsung已装用户指定的v65测试包，两轮标准M2命令均完成保留数据更新安装，并观测到TestServer及本地/远端资源1016/1016，结果均为 `PASS / READINESS_CONFIRMED`。用户批准本轮以登录、玩家初始化、场景加载回调日志及连续3次进程/前台稳定、无归属本包的崩溃或ANR作为M2验收范围；它不证明初始化完成、主界面可交互或业务正确。M2的PASS仅为合同约定的 `startup_readiness`，业务为 `NOT_EVALUATED`；M0交接保持草稿及外部M2执行链，`m0_run_imported=false`，导出成功不等于测试通过。用户已最终验收M2并完成main合并；M3.1已实现只读协议、合成Unity发布和离线证据复核，本环未修改真实游戏或执行设备操作，真实接入与业务升级仍待后续阶段。
+M3.2入口为 `inspect-provider-m3 INPUT --output PATH.json`，复核实际DLL文件与加载身份、清单，以及device记录所需的当次日志和M2已装证明；不操作设备或调用模型。`assembly_probe`只报告编译程序集身份，`device`也只离线复核提供的记录，始终`live_provider=false`且业务`NOT_EVALUATED`。通用内核与项目读取点分开维护，详细结构及可验收范围见[M3.2文档](docs/m3/runtime-provider.md)。
+
+截至2026-10-16，当前Samsung已装用户指定的v65测试包，两轮标准M2命令均完成保留数据更新安装，并观测到TestServer及本地/远端资源1016/1016，结果均为 `PASS / READINESS_CONFIRMED`。用户批准本轮以登录、玩家初始化、场景加载回调日志及连续3次进程/前台稳定、无归属本包的崩溃或ANR作为M2验收范围；它不证明初始化完成、主界面可交互或业务正确。M2的PASS仅为合同约定的 `startup_readiness`，业务为 `NOT_EVALUATED`；M0交接保持草稿及外部M2执行链，`m0_run_imported=false`，导出成功不等于测试通过。M3.2保护原游戏工作区，在私有冻结副本验证Provider及测试加载钩子；新专用包必须经过完整构建与实际安装核验，不能直接把新DLL替换进旧v65。

@@ -87,6 +87,7 @@ namespace AiTestAgent.Bridge.Editor
                     unavailable.ledger.events.Length == 0, "Unknown ledger must remain unknown");
 
                 CheckFailureRecovery(publisher);
+                CheckWireEscaping();
                 Debug.Log("OBSERVATION_COMPILE_SMOKE_PASS");
             }
             finally { UnityEngine.Object.DestroyImmediate(host); }
@@ -96,6 +97,26 @@ namespace AiTestAgent.Bridge.Editor
         {
             Require(message.StartsWith(GameTestObservationPublisher.Marker, StringComparison.Ordinal), "Wrong marker");
             return JsonUtility.FromJson<GameTestObservation>(message.Substring(GameTestObservationPublisher.Marker.Length));
+        }
+
+        private static void CheckWireEscaping()
+        {
+            string escaped = "quote\" slash\\ line\n tab\t 中文 \ud83d\ude80";
+            var value = new GameTestObservation { provider = escaped };
+            value.ledger.events = new[] { new LedgerEventSnapshot { transaction_id = escaped, seq = long.MaxValue } };
+            string json = GameTestObservationJson.Serialize(value);
+            var decoded = JsonUtility.FromJson<GameTestObservation>(json);
+            Require(decoded.provider == escaped && decoded.ledger.events.Length == 1 &&
+                decoded.ledger.events[0].transaction_id == escaped && decoded.ledger.events[0].seq == long.MaxValue,
+                "Fixed wire JSON lost escaping, nested array, or integer precision");
+            // Unity's native reader truncates U+0000 strings; preserve its wire escape for host readers.
+            value.provider = escaped + "\0tail";
+            string nulJson = GameTestObservationJson.Serialize(value);
+            Require(nulJson.Contains("\\u0000tail"), "NUL was not escaped for the host JSON reader");
+            Debug.Log("OBSERVATION_WIRE_JSON:" + nulJson);
+            value.ledger.events[0] = null;
+            ExpectInvalidOperation(() => GameTestObservationJson.Serialize(value), "Null ledger event must fail");
+            Debug.Log("OBSERVATION_WIRE_SMOKE_PASS");
         }
 
         private static void CheckFailureRecovery(GameTestObservationPublisher publisher)

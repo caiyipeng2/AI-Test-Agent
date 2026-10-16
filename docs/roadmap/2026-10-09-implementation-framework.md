@@ -1,6 +1,6 @@
 # Idle_Outpost AI 辅助测试实施框架
 
-日期：2026-10-16。状态：**M0、M1、M2及M3.1均已由用户确认验收并合并main；真实Provider接入前的版本及构建边界核验正在准备，实际游戏接入尚未执行；M3完整业务闭环及后续AI自主规划仍按阶段推进**。
+日期：2026-10-16。状态：**M0、M1、M2及M3.1已由用户确认验收并合并main；M3.2在独立分支交付真实只读Provider源码、运行身份握手与隔离编译/程序集探测，等待本环验收；尚无含新桥的Android专用包，M3完整业务闭环及后续AI自主规划仍按阶段推进**。
 
 已完成项目勘察和真实包体门禁验证。用户重新指定v65测试包，当前Samsung已安装该版本；受控启动已观测到TestServer、资源1016及登录/玩家初始化/场景加载回调。用户批准M2以这些回调里程碑及连续3次进程、前台稳定且无归属本包的崩溃或ANR验收，交互与业务留到M3。此口径不证明玩家初始化完成或主界面可交互；真实同参执行证据见[M2验证记录](../verification/2026-10-16-m2-deterministic-smoke.md)。以下描述确认后的实施顺序；每个阶段完成真实闭环并经用户验收后再推进。
 
@@ -33,6 +33,8 @@ M0/M1 的执行记录允许人工产生，不能冒称 Agent 自动执行。M2 �
 M3按环推进。当前M3.1交付schema2只读发布器、宿主状态/流水/PNG关联及 `assess-recording-m3 INPUT --output PATH.json`，可复跑合成PASS、错误扣款FAIL、缺失流水BLOCKED，详见[M3.1用法与验收](../m3/README.md)。它只判定记录是否满足证据合同，固定 `scope=readonly_upgrade_evidence`、`business_status=NOT_EVALUATED`、`execution=device_free`；不修改真实游戏、连接设备、执行升级或创建M0已执行run，不增加业务执行覆盖。
 
 本环中的独立合成UnityHost已验证发布器、未安装Provider的失败分支和Python协议往返，五种编译符号组合验证guard行为；这不能代替真实APK/AAB的发布排除验证。需求与成本来源仍是审核声明，字段或关键词本身不能认证来源。首环已验收并合并，后续单独开展真实Provider、测试包与安全输入接入，并在指定基线完成连续五次业务复跑；这些完成前不把M3整体标记为完成。
+
+M3.2增加标准加载身份与独立项目适配层，在私有冻结副本编译真实游戏源码；宿主`inspect-provider-m3`核对实际DLL与提供的身份/日志/已装证明。结构与字段见[M3.2文档](../m3/runtime-provider.md)，实际结果见[验证记录](../verification/2026-10-16-m32-runtime-provider.md)。本环只读且不产生业务执行覆盖；程序集探测只能证明Editor加载身份，device模式也只离线核验证据，始终`live_provider=false`。AOT加载钩子要求完整专用测试包，后续按“固定兼容基线→Unity/AOT/IL2CPP→原Android Studio SDK工程最终打包→M2实际安装核验→当次Provider只读状态→权威事务与单次升级→五次复跑”完成剩余闭环；不能直接替换旧v65的DLL。
 
 M2的 `m2-smoke --contract PATH` 保存独立run/attempt并自动导出 `m0-handoff.json`；`m2-report INPUT --contract PATH --output PATH` 重读实际证据后重新导出交接和相邻Markdown报告。导出成功只表示交接可供审核，原始 `m2_status` 仍独立保留。交接中的M0 case保持草稿，真实执行留在外部M2链，`m0_run_imported=false`；不伪造M1人工批准或M0业务执行覆盖。
 

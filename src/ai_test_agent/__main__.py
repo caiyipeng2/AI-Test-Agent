@@ -68,9 +68,15 @@ def main(argv=None):
     m3_assess = commands.add_parser('assess-recording-m3', help='review readonly state, PNG and ledger evidence without device access')
     m3_assess.add_argument('input')
     m3_assess.add_argument('--output', required=True, help='JSON review; Markdown uses the same stem')
+    m32_inspect = commands.add_parser('inspect-provider-m3', help='verify loaded provider identity evidence without device actions')
+    m32_inspect.add_argument('input')
+    m32_inspect.add_argument('--output', required=True)
     args = parser.parse_args(argv)
     try:
-        if args.command == 'assess-recording-m3':
+        if args.command == 'inspect-provider-m3':
+            from .m32 import inspect_provider_file
+            result = inspect_provider_file(args.input, args.output)
+        elif args.command == 'assess-recording-m3':
             from .m3 import assess_recording_file
             result = assess_recording_file(args.input, args.output)
         elif args.command == 'm2-smoke':
