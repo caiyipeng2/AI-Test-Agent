@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "evidence_mode": "synthetic",
+  "contract": {
+    "approved": true,
+    "reviewer": "synthetic fixture",
+    "reviewed_at": "2026-10-16T10:00:00+08:00",
+    "source_ref": "synthetic-fixture:upgrade-requirement",
+    "cost_source_ref": "synthetic-fixture:independent-cost-rule",
+    "provider": "SyntheticProvider",
+    "runtime_source": {
+      "build_id": "synthetic-build",
+      "resource_version": "synthetic-resource",
+      "dll_version": "synthetic-dll",
+      "server": "test"
+    },
+    "device_alias": "synthetic-device",
+    "pid": 123,
+    "target_id": "device-1",
+    "window_id": "upgrade-window",
+    "currency_id": "coin",
+    "operation_id": "upgrade-1",
+    "expected_cost": "10.05",
+    "trace": {
+      "requirement_id": "synthetic-requirement",
+      "case_id": "synthetic-case",
+      "source_ref": "synthetic-fixture:upgrade-requirement",
+      "run_id": "synthetic-run",
+      "attempt_id": "synthetic-attempt"
+    }
+  },
+  "before": {
+    "line": "10-16 10:00:00.010 123 123 I Unity: AI_TEST_OBSERVATION_JSON:{\"schema\": 2, \"session_id\": \"synthetic-session\", \"seq\": 1, \"frame\": 10, \"provider\": \"SyntheticProvider\", \"source\": {\"available\": true, \"build_id\": \"synthetic-build\", \"resource_version\": \"synthetic-resource\", \"dll_version\": \"synthetic-dll\", \"server\": \"test\"}, \"target\": {\"available\": true, \"target_id\": \"device-1\", \"window_id\": \"upgrade-window\", \"level\": 1, \"cost\": \"10.05\", \"ready\": true}, \"wallet\": {\"available\": true, \"currency_id\": \"coin\", \"balance\": \"100.25\"}, \"ledger\": {\"available\": true, \"complete\": true, \"first_seq\": 1, \"last_seq\": 0, \"events\": []}}",
+    "capture": {
+      "device_alias": "synthetic-device",
+      "pid": 123,
+      "log_start": "10-16 10:00:00.000",
+      "log_end": "10-16 10:00:00.050",
+      "session_id": "synthetic-session",
+      "seq": 1,
+      "observer": "bridge",
+      "visual_confirmed": true,
+      "visual_review_ref": "synthetic-fixture:visual-before",
+      "screenshot": {
+        "evidence_id": "synthetic-before",
+        "path": "before.png",
+        "bytes": 69,
+        "sha256": "61d860e87c66d79149568f685e071d52917135d267b854d43703f08ee0a6ac93",
+        "width": 1,
+        "height": 1
+      }
+    }
+  },
+  "after": {
+    "line": "10-16 10:00:01.010 123 123 I Unity: AI_TEST_OBSERVATION_JSON:{\"schema\": 2, \"session_id\": \"synthetic-session\", \"seq\": 2, \"frame\": 20, \"provider\": \"SyntheticProvider\", \"source\": {\"available\": true, \"build_id\": \"synthetic-build\", \"resource_version\": \"synthetic-resource\", \"dll_version\": \"synthetic-dll\", \"server\": \"test\"}, \"target\": {\"available\": true, \"target_id\": \"device-1\", \"window_id\": \"upgrade-window\", \"level\": 2, \"cost\": \"10.05\", \"ready\": true}, \"wallet\": {\"available\": true, \"currency_id\": \"coin\", \"balance\": \"91.45\"}, \"ledger\": {\"available\": true, \"complete\": true, \"first_seq\": 1, \"last_seq\": 2, \"events\": [{\"seq\": 1, \"transaction_id\": \"synthetic-income-1\", \"operation_id\": \"\", \"kind\": \"external\", \"target_id\": \"\", \"currency_id\": \"coin\", \"delta\": \"+1.25\", \"balance_after\": \"101.50\"}, {\"seq\": 2, \"transaction_id\": \"synthetic-upgrade-1\", \"operation_id\": \"upgrade-1\", \"kind\": \"upgrade\", \"target_id\": \"device-1\", \"currency_id\": \"coin\", \"delta\": \"-10.05\", \"balance_after\": \"91.45\"}]}}",
+    "capture": {
+      "device_alias": "synthetic-device",
+      "pid": 123,
+      "log_start": "10-16 10:00:01.000",
+      "log_end": "10-16 10:00:01.050",
+      "session_id": "synthetic-session",
+      "seq": 2,
+      "observer": "bridge",
+      "visual_confirmed": true,
+      "visual_review_ref": "synthetic-fixture:visual-after",
+      "screenshot": {
+        "evidence_id": "synthetic-after",
+        "path": "after.png",
+        "bytes": 69,
+        "sha256": "e0c136f5b00368c13516c4bd48efcefa6b987bae9013a2bd1be057448dd0e2e4",
+        "width": 1,
+        "height": 1
+      }
+    }
+  }
+}

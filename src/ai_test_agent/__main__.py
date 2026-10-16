@@ -65,9 +65,15 @@ def main(argv=None):
     m2_report.add_argument('input', help='original M2 result.json')
     m2_report.add_argument('--contract', required=True)
     m2_report.add_argument('--output', required=True, help='handoff JSON; scoped Markdown uses the same stem')
+    m3_assess = commands.add_parser('assess-recording-m3', help='review readonly state, PNG and ledger evidence without device access')
+    m3_assess.add_argument('input')
+    m3_assess.add_argument('--output', required=True, help='JSON review; Markdown uses the same stem')
     args = parser.parse_args(argv)
     try:
-        if args.command == 'm2-smoke':
+        if args.command == 'assess-recording-m3':
+            from .m3 import assess_recording_file
+            result = assess_recording_file(args.input, args.output)
+        elif args.command == 'm2-smoke':
             from .m2 import M2Runner
             from .m2_trace import export_m2_trace
             from .requirements import read_json
