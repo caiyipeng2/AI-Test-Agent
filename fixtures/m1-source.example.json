@@ -1,0 +1,12 @@
+{
+  "source_id": "source-example-requirement",
+  "source_version": "2026-10-10",
+  "source_ref": "fixture/requirements",
+  "permission": "user-approved",
+  "model_access": false,
+  "data_class": "synthetic",
+  "sections": [
+    {"section_id": "s1", "title": "Upgrade rule", "text": "The player must spend coins once to upgrade the device.", "locator": "p1"},
+    {"section_id": "s2", "title": "Failure rule", "text": "The game must show an error when coins are insufficient or the request times out.", "locator": "p2"}
+  ]
+}
