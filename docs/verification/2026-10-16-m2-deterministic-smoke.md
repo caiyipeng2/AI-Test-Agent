@@ -48,3 +48,19 @@ python -m ai_test_agent m2-report artifacts/m2/RUN_ID/DEVICE_ALIAS/result.json -
 M0 交接保留草稿注册表及真实外部 M2 run/attempt/证据链。`m0_run_imported=false`，不创建 M0 已执行记录，不增加业务用例执行覆盖率，也不代替 M1 人工审核。
 
 本轮代码与方案提交到 `codex/m2-deterministic-smoke` 供审阅，尚不合并 main。真实正向闭环补齐并验收后，才按既定规则合并和推进下一阶段。
+
+## 用户截图补充后的包体复核
+
+用户补充目录截图后，对 2026-10-13 相邻三组 AAB/APKS 重新读取实际 manifest 和 HwGameConfig 资产，而非仅按文件名归类：
+
+| 文件时间后缀 | 实际 versionCode / versionName | 包内服务器字段 | 测试资源开关 | AAB/APKS 配置资产一致 |
+| --- | --- | --- | --- | --- |
+| `17_10`（v65） | 65 / 2.1.2 | TestServer = 2 | true | 是 |
+| `19_29`（v65） | 65 / 2.1.2 | ProduceServer = 3 | false | 是 |
+| `20_12`（v66） | 66 / 2.1.2 | ProduceServer = 3 | false | 是 |
+
+因此已找到同日较新的 v65 测试配置包，但它依然低于 Samsung 当前已安装的 versionCode 66。对 `17_10` APKS 运行实际 `m2-smoke`：包体环境校验通过，随后在设备版本检查处以 `VERSION_DOWNGRADE_BLOCKED` 停止；没有执行安装、force-stop 或启动。原有“保留数据更新”授权没有扩展为卸载重装或强制降级。
+
+本地原始复核索引为 `.local/m2-discovery/screenshot-candidate-recheck.json`；每组保存独立核验报告、资产 hash 和测试合同，真实尝试索引为 `.local/m2-discovery/screenshot-recheck/test-v65-17_10-cli.json`。本次没有修改工具代码，348 项回归的实现仍为 `bef7c7c`。
+
+表中描述的是包内配置；当前源码确认 Android 分支直接使用该服务器字段，但当前源码不能代替历史包实际运行时联网证据。若用户提供不同的环境选择机制，需核验其包内代码与运行时证据后再修订判断。
