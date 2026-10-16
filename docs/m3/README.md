@@ -1,6 +1,6 @@
 # M3.1：只读状态与流水证据
 
-M3.1 是 M3 的只读协议首环：读取已有记录，关联升级前后状态、货币流水和实际 PNG，输出可复核的证据判定。本环没有接入真实游戏 Provider、制作或替换游戏包、连接设备或执行升级；真实业务接入和指定基线连续五次复跑仍属后续工作。
+M3.1 是 M3 的只读协议首环，已于2026-10-16经用户验收并合并main：读取已有记录，关联升级前后状态、货币流水和实际 PNG，输出可复核的证据判定。本环没有接入真实游戏 Provider、制作或替换游戏包、连接设备或执行升级；真实业务接入和指定基线连续五次复跑仍属后续工作。
 
 结果始终保留 `scope=readonly_upgrade_evidence`、`business_status=NOT_EVALUATED`、`execution=device_free`。`PASS` 只说明所提供记录满足当前证据合同，不能据此宣布真实游戏升级通过、M3 完整完成或新增 M0 已执行 run/业务覆盖。`FAIL` 表示记录中存在已知不符；是否为真实游戏 Bug，仍需后续接入复核。
 
@@ -129,4 +129,4 @@ after 的完整流水必须覆盖 `(before.last_seq, after.last_seq]`，不允�
 2. 对同一 PASS 输入写出第二组报告，确认 input_sha256 相同、assessment_id 不同、断言结论一致。
 3. 检查报告始终为 readonly scope、device_free、business NOT_EVALUATED，并保留来源、trace、事务和哈希。
 4. 运行协议、关联、CLI/pipeline 与旧入口回归；实际命令和结果以[本轮验证记录](../verification/2026-10-16-m3-readonly-evidence.md)为准。
-5. 首环验收后，再单独审核真实 Provider、测试包构建、输入动作及五次业务复跑，不将合成 PASS 计入真实执行覆盖。
+5. 首环已验收并合并；后续仍需单独审核真实 Provider、测试包构建、输入动作及五次业务复跑，不将合成 PASS 计入真实执行覆盖。
