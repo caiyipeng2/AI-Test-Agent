@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "project_id": "example-android-project",
+  "case_id": "CASE-M2-STARTUP",
+  "source_ref": "example://review-pending/startup-contract",
+  "adb_path": "E:/Tools/android-platform-tools/adb.exe",
+  "serial": "REPLACE_WITH_EXPLICIT_SERIAL",
+  "device_alias": "example-device",
+  "artifact_root": "artifacts/m2",
+  "apks_path": "E:/Builds/example-test.apks",
+  "environment": "test",
+  "expected": {
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "package": "com.example.game",
+    "version_code": 100,
+    "version_name": "0.0-example"
+  },
+  "environment_policy": {
+    "kind": "json_field",
+    "archive_apk": "asset-slices/example-config-master.apk",
+    "installed_apk": "split_example-config.apk",
+    "asset_path": "assets/environment.example.json",
+    "asset_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "field_path": ["environment", "server"],
+    "expected_value": "test",
+    "source_ref": "example://review-pending/environment-schema"
+  },
+  "tools": {
+    "java_path": "E:/Tools/java/bin/java.exe",
+    "bundletool_path": "E:/Tools/bundletool/bundletool.jar"
+  },
+  "install_policy": "if_needed",
+  "restart_before_launch": true,
+  "readiness": {
+    "approved": false,
+    "source_ref": "example://review-pending/readiness-signals",
+    "log_markers": [],
+    "ui_texts": [],
+    "ui_classes": [],
+    "stable_samples": 3,
+    "reviewer": "",
+    "reviewed_at": ""
+  },
+  "budgets": {
+    "preflight_seconds": 120,
+    "install_seconds": 300,
+    "startup_seconds": 90,
+    "poll_seconds": 1
+  }
+}

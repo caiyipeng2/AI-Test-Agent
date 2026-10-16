@@ -59,9 +59,46 @@ def main(argv=None):
     doc_analyze.add_argument('--output-dir', required=True)
     doc_analyze.add_argument('--provider-config', required=True)
     doc_analyze.add_argument('--allow-model', action='store_true', help='authorize sending this document and image attachments to the configured provider')
+    m2_smoke = commands.add_parser('m2-smoke', help='run an explicit test-only Android install/startup contract')
+    m2_smoke.add_argument('--contract', required=True)
+    m2_report = commands.add_parser('m2-report', help='verify local M2 evidence and export a device-free M0 draft handoff')
+    m2_report.add_argument('input', help='original M2 result.json')
+    m2_report.add_argument('--contract', required=True)
+    m2_report.add_argument('--output', required=True, help='handoff JSON; scoped Markdown uses the same stem')
     args = parser.parse_args(argv)
     try:
-        if args.command == 'extract-document-m1':
+        if args.command == 'm2-smoke':
+            from .m2 import M2Runner
+            from .m2_trace import export_m2_trace
+            from .requirements import read_json
+            contract = read_json(args.contract)
+            run = M2Runner(contract).run()
+            handoff = export_m2_trace(contract, run, Path(run['run_dir']) / 'm0-handoff.json')
+            result = {key: run[key] for key in ('status', 'category', 'scope', 'business_status', 'run_id',
+                      'attempt_id', 'config_sha256', 'result_path', 'reasons')}
+            result.update(m0_handoff_status=handoff['status'], handoff_path=handoff['output_path'])
+        elif args.command == 'm2-report':
+            from .m2 import write_m2_report, validate_m2_contract
+            from .m2_trace import export_m2_trace
+            from .requirements import read_json
+            contract, run = read_json(args.contract), read_json(args.input)
+            errors = validate_m2_contract(contract)
+            if errors:
+                raise ValueError('; '.join(errors))
+            output = Path(args.output).resolve()
+            if output.suffix.lower() != '.json':
+                raise ValueError('M2 report output must have a .json suffix')
+            markdown = output.with_suffix('.md')
+            protected = {Path(args.input).resolve(), Path(args.contract).resolve(), Path(contract['apks_path']).resolve()}
+            protected.update(Path(item['path']).resolve() for item in run.get('evidence', []))
+            if output in protected or markdown in protected:
+                raise ValueError('M2 report cannot overwrite input, contract, artifact, or evidence')
+            handoff = export_m2_trace(contract, run, output)
+            write_m2_report(run, markdown)
+            result = {'status': 'PASS' if handoff['status'] == 'READY_FOR_M0_REVIEW' else 'BLOCKED',
+                      'm2_status': run['status'], 'handoff_status': handoff['status'],
+                      'output': str(output), 'report_path': str(markdown), 'business_status': 'NOT_EVALUATED'}
+        elif args.command == 'extract-document-m1':
             from .documents import extract_document
             from .document_analysis import _write_json
             output = Path(args.output_dir).resolve()

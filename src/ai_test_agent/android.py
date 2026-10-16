@@ -1,4 +1,4 @@
-"""Fail-closed Android commands; every invocation uses an explicit device."""
+"""Fail-closed Android commands; target operations use an explicit device."""
 
 import hashlib
 import re
@@ -8,6 +8,7 @@ import time
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from .contracts import evidence_for_png, make_id
@@ -71,6 +72,55 @@ class AndroidDevice:
             raise ValueError('invalid Android package name')
         return package
 
+    def discover_devices(self) -> list[dict[str, str]]:
+        result = self.executor.run([self.adb_path, 'devices', '-l'], timeout=30)
+        self.command_results.append(result)
+        self._checked(result)
+        try:
+            lines = result.stdout.decode('utf-8').strip().splitlines()
+            if not lines or lines[0] != 'List of devices attached':
+                raise ValueError('device list header is missing')
+            devices = []
+            serials = set()
+            states = {'device', 'offline', 'unauthorized', 'bootloader', 'recovery',
+                      'sideload', 'rescue', 'connecting', 'authorizing'}
+            for line in lines[1:]:
+                if not line.strip():
+                    continue
+                fields = line.split()
+                if (len(fields) < 2 or not re.fullmatch(r'[A-Za-z0-9._:-]+', fields[0])
+                        or fields[1] not in states or fields[0] in serials):
+                    raise ValueError('device entry is invalid or ambiguous')
+                attributes = {}
+                for field in fields[2:]:
+                    match = re.fullmatch(r'([A-Za-z_][A-Za-z0-9_]*):([^\s]+)', field)
+                    if match is None or match[1] in attributes:
+                        raise ValueError('device attributes are invalid or ambiguous')
+                    attributes[match[1]] = match[2]
+                entry = {'serial': fields[0], 'state': fields[1]}
+                if 'model' in attributes:
+                    entry['model'] = attributes['model']
+                devices.append(entry)
+                serials.add(fields[0])
+        except (UnicodeDecodeError, ValueError) as error:
+            raise AndroidToolError(f'device list is invalid: {error}', result) from error
+        return devices
+
+    def device_log_time(self) -> str:
+        result = self._run(['shell', 'date', '+%m-%dT%H:%M:%S.%3N'])
+        value = result.stdout.decode('utf-8', errors='replace').strip().replace('T', ' ')
+        try:
+            if not re.fullmatch(r'[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}', value):
+                raise ValueError('expected MM-DD HH:MM:SS.mmm')
+            # A fixed leap year validates month/day without consulting the host clock.
+            datetime.strptime('2000-' + value, '%Y-%m-%d %H:%M:%S.%f')
+        except ValueError as error:
+            raise AndroidToolError(f'device log timestamp is invalid: {error}', result) from error
+        return value
+
+    def force_stop(self, package) -> CommandResult:
+        return self._run(['shell', 'am', 'force-stop', self._package(package)])
+
     def package_info(self, package):
         result = self._run(['shell', 'dumpsys', 'package', self._package(package)])
         text = result.stdout.decode('utf-8', errors='replace')
@@ -82,6 +132,34 @@ class AndroidDevice:
                 raise AndroidToolError(f'package metadata missing {output_name}', result)
             values[output_name] = match[1] if output_name == 'version_name' else int(match[1])
         return values
+
+    def installed_apk_hashes(self, package) -> dict[str, str]:
+        result = self._run(['shell', 'pm', 'path', self._package(package)])
+        try:
+            paths = {}
+            for line in result.stdout.decode('ascii').splitlines():
+                match = re.fullmatch(r'package:(/data/app/(?:[A-Za-z0-9_~+=.-]+/)+([A-Za-z0-9_][A-Za-z0-9_.-]*\.apk))', line)
+                if (match is None or any(part in {'.', '..'} for part in match[1].split('/'))
+                        or match[2] in paths):
+                    raise ValueError('APK path is unsafe or its basename is duplicated')
+                paths[match[2]] = match[1]
+            if 'base.apk' not in paths:
+                raise ValueError('installed base.apk path is missing')
+        except (UnicodeError, ValueError) as error:
+            raise AndroidToolError(f'installed APK paths could not be verified: {error}', result) from error
+        hashes = {}
+        for name, path in paths.items():
+            result = self._run(['shell', 'sha256sum', path])
+            try:
+                lines = result.stdout.decode('ascii').splitlines()
+                match = (re.fullmatch(r'([0-9a-fA-F]{64})[ \t]+' + re.escape(path), lines[0])
+                         if len(lines) == 1 else None)
+                if match is None:
+                    raise ValueError('expected one SHA-256 digest for the exact installed APK path')
+                hashes[name] = match[1].lower()
+            except (UnicodeError, ValueError) as error:
+                raise AndroidToolError(f'installed APK SHA-256 could not be verified: {error}', result) from error
+        return hashes
 
     def device_info(self):
         model = self._run(['shell', 'getprop', 'ro.product.model'])
