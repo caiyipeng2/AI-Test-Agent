@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-**M0、M1基础协议及全自动文档分析首版均已由用户验收。** M1处理需求/风险、测试点、用例、人工审核与结果/缺口，支持从原始DOCX直接调用模型生成草稿。M2确定性Android安装/启动工具正在实现和验收中，真实正向闭环等待新版测试包；M3业务状态断言与AI Agent仍按后续阶段推进。
+**M0、M1基础协议及全自动文档分析首版均已由用户验收。** M1处理需求/风险、测试点、用例、人工审核与结果/缺口，支持从原始DOCX直接调用模型生成草稿。M2确定性Android安装/启动工具已实现，用户指定的v65测试包在同一合同下两轮实机验证均通过，阶段交付待用户最终验收；M3交互与业务状态断言、后续AI Agent仍按阶段推进。
 
 | 文档 | 用途 |
 | --- | --- |
@@ -16,7 +16,7 @@
 | [M1 需求分析](docs/m1/README.md) | 来源锚点、风险/测试点、用例草稿和人工审核状态 |
 | [M1 真实文档实测](docs/verification/2026-10-16-m1-real-document.md) | 真实 DOCX 的会话 AI 分析、来源引用、导入门禁和待人工审核状态 |
 | [M2 Android 确定性冒烟](docs/m2/README.md) | 严格测试包/设备门禁、readiness合同、同参复跑及经过证据验证的M0交接 |
-| [M2 验证记录](docs/verification/2026-10-16-m2-deterministic-smoke.md) | 348项回归、真实门禁和同参复跑证据、剩余阻塞与验收入口 |
+| [M2 验证记录](docs/verification/2026-10-16-m2-deterministic-smoke.md) | 自动回归、真实环境门禁、场景回调里程碑与同参复跑证据及验收入口 |
 
 ## 推荐推进顺序
 
@@ -41,4 +41,4 @@ M1支持离线规则对照、会话AI导入和全自动文档分析。全自动�
 
 M2入口为 `m2-smoke --contract PATH`，运行后自动生成同目录 `m0-handoff.json`；已有结果用 `m2-report INPUT --contract PATH --output PATH` 重新验证证据并导出交接与相邻Markdown报告。配置从[通用示例](fixtures/m2-contract.example.json)复制到本地，示例的readiness默认未批准。详细用法、退出码和验收流程见[M2文档](docs/m2/README.md)。
 
-截至2026-10-16，当前Samsung已装v66，两份现场v66均为正式服，旧v65测试包因降级门禁受阻。当前没有M2实机正向通过结论。M2的PASS仅为 `startup_readiness`，业务为 `NOT_EVALUATED`；M0交接保持草稿及外部M2执行链，`m0_run_imported=false`，导出成功不等于测试通过。
+截至2026-10-16，当前Samsung已装用户指定的v65测试包，两轮标准M2命令均完成保留数据更新安装，并观测到TestServer及本地/远端资源1016/1016，结果均为 `PASS / READINESS_CONFIRMED`。用户批准本轮以登录、玩家初始化、场景加载回调日志及连续3次进程/前台稳定、无归属本包的崩溃或ANR作为M2验收范围；它不证明初始化完成、主界面可交互或业务正确。M2的PASS仅为合同约定的 `startup_readiness`，业务为 `NOT_EVALUATED`；M0交接保持草稿及外部M2执行链，`m0_run_imported=false`，导出成功不等于测试通过。当前分支尚未合并，M3尚未开始。
