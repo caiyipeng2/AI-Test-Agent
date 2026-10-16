@@ -1,0 +1,13 @@
+{
+  "provider": "openai-compatible",
+  "base_url": "https://api.openai.com/v1",
+  "model": "YOUR_MODEL",
+  "api_key_env": "M1_MODEL_API_KEY",
+  "timeout_seconds": 180,
+  "max_output_tokens": 16000,
+  "token_limit_parameter": "max_completion_tokens",
+  "response_format": "json_schema",
+  "supports_images": true,
+  "max_images": 32,
+  "max_input_chars": 120000
+}

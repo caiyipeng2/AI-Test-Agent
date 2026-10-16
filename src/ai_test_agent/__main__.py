@@ -51,9 +51,35 @@ def main(argv=None):
     m1_gaps.add_argument('input', help='M1 analysis JSON')
     m1_gaps.add_argument('--defects', help='historical defects JSON array', default=None)
     m1_gaps.add_argument('--output', required=True)
+    doc_extract = commands.add_parser('extract-document-m1', help='extract local DOCX/Markdown/text without model access')
+    doc_extract.add_argument('input')
+    doc_extract.add_argument('--output-dir', required=True)
+    doc_analyze = commands.add_parser('analyze-document-m1', help='automatically extract a document and call the configured analysis model')
+    doc_analyze.add_argument('input')
+    doc_analyze.add_argument('--output-dir', required=True)
+    doc_analyze.add_argument('--provider-config', required=True)
+    doc_analyze.add_argument('--allow-model', action='store_true', help='authorize sending this document and image attachments to the configured provider')
     args = parser.parse_args(argv)
     try:
-        if args.command == 'assess-upgrade':
+        if args.command == 'extract-document-m1':
+            from .documents import extract_document
+            from .document_analysis import _write_json
+            output = Path(args.output_dir).resolve()
+            if output.exists() and (not output.is_dir() or any(output.iterdir())):
+                raise ValueError('Output directory must be empty; choose a new extraction directory')
+            output.mkdir(parents=True, exist_ok=True)
+            bundle = extract_document(args.input, output / 'extraction')
+            _write_json(output / 'source.json', bundle['source'])
+            _write_json(output / 'document-manifest.json', bundle['manifest'])
+            result = {'status': 'PASS', 'output': str(output), 'source_sections': len(bundle['source']['sections']),
+                      'images': len(bundle['images']), 'warnings': bundle['warnings'], 'model_calls': 0}
+        elif args.command == 'analyze-document-m1':
+            from .model_providers import load_provider
+            from .document_analysis import analyze_document
+            run = analyze_document(args.input, args.output_dir, load_provider(args.provider_config), allow_model_access=args.allow_model)
+            result = {key: run[key] for key in ('status', 'stage', 'analysis_id', 'counts', 'category', 'reason',
+                       'model_calls', 'human_review_status', 'm0_handoff_status', 'output_directory') if key in run}
+        elif args.command == 'assess-upgrade':
             from .upgrade import assess_upgrade
             data = json.loads(Path(args.input).read_text(encoding='utf-8-sig'))
             if not isinstance(data, dict):

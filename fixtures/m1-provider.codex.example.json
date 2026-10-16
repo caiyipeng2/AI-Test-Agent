@@ -1,0 +1,8 @@
+{
+  "provider": "codex-cli",
+  "executable": "codex",
+  "reasoning_effort": "medium",
+  "timeout_seconds": 900,
+  "max_images": 32,
+  "max_input_chars": 120000
+}
