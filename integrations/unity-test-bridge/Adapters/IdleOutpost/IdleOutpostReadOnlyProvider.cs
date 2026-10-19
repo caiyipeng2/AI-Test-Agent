@@ -103,7 +103,8 @@ namespace AiTestAgent.IdleOutpost
         {
             succeeded = true;
             if (GameEntity.UICtrl == null) return false;
-            var windows = GameEntity.UICtrl.GetUIWindowsByGroup(UIGroupEnum.PopUp);
+            // The reviewed UI_Attribute entry for window 4 places it in Main (100).
+            var windows = GameEntity.UICtrl.GetUIWindowsByGroup(UIGroupEnum.Main);
             if (windows == null) return false;
             for (var node = windows.First; node != null; node = node.Next)
             {

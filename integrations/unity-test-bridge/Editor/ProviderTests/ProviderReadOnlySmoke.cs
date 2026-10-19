@@ -26,6 +26,7 @@ public static class ProviderReadOnlySmoke
             Run("missing-data-does-not-insert", MissingDataDoesNotInsert);
             Run("wallet-overloaded-null-equality", WalletOverloadedNullEquality);
             Run("explicit-target-and-window", ExplicitTargetAndWindow);
+            Run("upgrade-window-group-isolation", UpgradeWindowGroupIsolation);
             Run("mismatches-unavailable", MismatchesUnavailable);
             Run("wallet-scope-and-missing-keys", WalletScopeAndMissingKeys);
             Run("amounts-are-plain-roundtrip-double", PlainAmounts);
@@ -119,6 +120,31 @@ public static class ProviderReadOnlySmoke
         terrain.GameBackPackInfoList[1] = null;
         Require(!provider.ReadObservation().wallet.available && GuardDouble.EqualityCalls == 0, "Null wallet invoked overloaded equality");
     }
+
+    private static void UpgradeWindowGroupIsolation()
+    {
+        var user = Fixture(); var terrain = Terrain(user); var provider = Provider();
+        var device = GameEntity.Device.Devices[0];
+        var window = new UIUpgradeWindow(device) { IsOpening = true };
+        Require(!ReferenceEquals(GameEntity.UICtrl.GetUIWindowsByGroup(Hlwd.Framework.UIGroupEnum.Main),
+            GameEntity.UICtrl.GetUIWindowsByGroup(Hlwd.Framework.UIGroupEnum.PopUp)), "Synthetic UI groups alias the same list");
+        GameEntity.UICtrl.PopUpWindows.AddLast(window);
+        RequireUnavailableTarget(provider.ReadObservation().target, "Matching device window in the wrong UI group");
+        GameEntity.UICtrl.PopUpWindows.Clear();
+        GameEntity.UICtrl.Windows.AddLast(window);
+        Require(provider.ReadObservation().target.available, "Configured Main-group window was not found");
+        window.IsOpening = false;
+        RequireUnavailableTarget(provider.ReadObservation().target, "Closed Main-group window");
+        window.IsOpening = true; window.gameObject.activeInHierarchy = false;
+        RequireUnavailableTarget(provider.ReadObservation().target, "Inactive Main-group window");
+        window.gameObject.activeInHierarchy = true;
+        GameEntity.UICtrl.Windows.Clear();
+        GameEntity.UICtrl.Windows.AddLast(new UIUpgradeWindow(new Device { Id = device.Id, Lvl = device.Lvl }) { IsOpening = true });
+        RequireUnavailableTarget(provider.ReadObservation().target, "Main-group window for a different device object");
+        GameEntity.UICtrl.Windows.Clear(); GameEntity.UICtrl.Windows.AddLast(window);
+        terrain.DeviceInfos[device.Id].Lv++;
+        RequireUnavailableTarget(provider.ReadObservation().target, "Runtime and saved levels differ in the correct UI group");
+    }
     private static void MismatchesUnavailable()
     {
         var user = Fixture(); var terrain = Terrain(user); var provider = Provider();
@@ -208,11 +234,12 @@ public static class ProviderReadOnlySmoke
         type.GetMethod("Begin").Invoke(null, null);
         Require(UnityEngine.GameObject.Created == before && Hlwd.Aot.ResVersionHelper.Calls == 0, "Non-debug player started bootstrap");
         UnityEngine.Debug.isDebugBuild = true;
-        type.GetMethod("CaptureLoadedAssembly").Invoke(null, new object[] { bytes, type.Assembly.ManifestModule.ModuleVersionId.ToString("D") });
-        Require(UnityEngine.Debug.Logs.Any(line => line.StartsWith("AI_TEST_LOADED_DLL_JSON:") && line.Contains("android_player")), "Player capture kind missing");
         UnityEngine.Application.isEditor = true;
+        var capture = type.GetMethod("CaptureLoadedBytes", new[] { typeof(byte[]) });
+        Require(capture != null, "Single-argument loaded bytes capture entry is missing");
+        capture.Invoke(null, new object[] { bytes });
         type.GetMethod("CaptureLoadedAssembly").Invoke(null, new object[] { bytes, type.Assembly.ManifestModule.ModuleVersionId.ToString("D") });
-        Require(UnityEngine.Debug.Logs.Any(line => line.StartsWith("AI_TEST_LOADED_DLL_JSON:") && line.Contains("editor_probe")), "Editor capture kind missing");
+        AssertEvidence(UnityEngine.Debug.Logs.Last(), "editor_probe", "runtime_api");
         GameEntity.WebRequest.ServerType = ServerType.TestServer;
         type.GetMethod("Begin").Invoke(null, null);
         type.GetMethod("Begin").Invoke(null, null);
@@ -229,14 +256,25 @@ public static class ProviderReadOnlySmoke
         UnityEngine.Time.frameCount = 29; update.Invoke(bootstrap, null);
         Require(UnityEngine.Debug.Logs.Count == logged, "Sample interval ignored");
         UnityEngine.Time.frameCount = 30; update.Invoke(bootstrap, null); update.Invoke(bootstrap, null);
-        Require(UnityEngine.Debug.Logs.Count == logged + 1, "Same-frame sample was duplicated");
-        UnityEngine.Application.isEditor = false; UnityEngine.Application.platform = UnityEngine.RuntimePlatform.WindowsPlayer;
+        Require(UnityEngine.Debug.Logs.Count == logged + 2, "Same-frame identity/observation pair was absent or duplicated");
+        Require(UnityEngine.Debug.Logs[logged].StartsWith("AI_TEST_LOADED_DLL_JSON:") &&
+            UnityEngine.Debug.Logs[logged + 1].StartsWith(GameTestObservationPublisher.Marker),
+            "Automatic sample must emit its captured identity immediately before observation");
+        string sampledIdentity = UnityEngine.Debug.Logs[logged];
+        AssertEvidence(sampledIdentity, "editor_probe", "runtime_api");
         UnityEngine.Time.frameCount = 60; update.Invoke(bootstrap, null);
-        Require(UnityEngine.Debug.Logs.Count == logged + 1, "Unsupported platform continued sampling");
+        Require(UnityEngine.Debug.Logs.Count == logged + 4 && UnityEngine.Debug.Logs[logged + 2] == sampledIdentity &&
+            UnityEngine.Debug.Logs[logged + 3].StartsWith(GameTestObservationPublisher.Marker),
+            "Later sample must retain the loaded identity and emit a new adjacent pair");
+        var secondSample = System.Text.Json.JsonDocument.Parse(UnityEngine.Debug.Logs[logged + 3].Substring(GameTestObservationPublisher.Marker.Length)).RootElement;
+        Require(secondSample.GetProperty("seq").GetInt64() == 3, "Repeated identity reset observation sequence");
+        UnityEngine.Application.isEditor = false; UnityEngine.Application.platform = UnityEngine.RuntimePlatform.WindowsPlayer;
+        UnityEngine.Time.frameCount = 90; update.Invoke(bootstrap, null);
+        Require(UnityEngine.Debug.Logs.Count == logged + 4, "Unsupported platform continued sampling");
         UnityEngine.Application.isEditor = true;
         GameEntity.WebRequest.ServerType = ServerType.ProduceServer;
-        UnityEngine.Time.frameCount = 90; update.Invoke(bootstrap, null);
-        Require(UnityEngine.Debug.Logs.Count == logged + 1, "Sampling continued after server changed");
+        UnityEngine.Time.frameCount = 120; update.Invoke(bootstrap, null);
+        Require(UnityEngine.Debug.Logs.Count == logged + 4, "Sampling continued after server changed");
     }
     private static void UnsupportedRuntime()
     {
@@ -254,6 +292,9 @@ public static class ProviderReadOnlySmoke
             Require(!observation.source.available && !observation.target.available && !observation.wallet.available, "Unsupported runtime produced observations: " + platform);
             ExpectInvocationFailure(() => type.GetMethod("CaptureLoadedAssembly").Invoke(null,
                 new object[] { bytes, type.Assembly.ManifestModule.ModuleVersionId.ToString("D") }), "Unsupported runtime captured Android identity: " + platform);
+            var capture = type.GetMethod("CaptureLoadedBytes", new[] { typeof(byte[]) });
+            Require(capture != null, "Single-argument loaded bytes capture entry is missing");
+            ExpectInvocationFailure(() => capture.Invoke(null, new object[] { bytes }), "Unsupported runtime captured loaded PE identity: " + platform);
             type.GetMethod("Begin").Invoke(null, null);
             Require(UnityEngine.GameObject.Created == hosts && Hlwd.Aot.ResVersionHelper.Calls == 0 && UnityEngine.Debug.Logs.Count == logs,
                 "Unsupported runtime started or emitted identity: " + platform);
@@ -261,18 +302,54 @@ public static class ProviderReadOnlySmoke
     }
     private static void BootstrapResourceBoundary(string mode)
     {
+        if (mode == "explicit-target-bootstrap") { BootstrapExplicitTarget(); return; }
+        if (mode == "android-pe-bootstrap") { BootstrapAndroidPeIdentity(); return; }
         var type = typeof(ProviderReadOnlySmoke).Assembly.GetType(Bootstrap);
         byte[] bytes = System.IO.File.ReadAllBytes(type.Assembly.Location);
         type.GetMethod("CaptureLoadedAssembly").Invoke(null, new object[] { bytes, type.Assembly.ManifestModule.ModuleVersionId.ToString("D") });
         GameEntity.WebRequest = new Hlwd.Game.WebRequestCtrl { ServerType = ServerType.TestServer };
         int before = UnityEngine.GameObject.Created;
         var completion = new System.Threading.Tasks.TaskCompletionSource<(int, int)>();
-        if (mode == "unknown-resource") Hlwd.Aot.ResVersionHelper.Result = System.Threading.Tasks.Task.FromResult((0, -1));
+        string expectedVersion = null;
+        if (mode == "local-resource")
+        {
+            BM.AssetComponentConfig.AssetLoadMode = BM.AssetLoadMode.Local;
+            Hlwd.Aot.ResVersionHelper.Result = System.Threading.Tasks.Task.FromResult((1200, 7));
+            expectedVersion = "7";
+        }
+        else if (mode == "local-unknown-resource")
+        {
+            BM.AssetComponentConfig.AssetLoadMode = BM.AssetLoadMode.Local;
+            Hlwd.Aot.ResVersionHelper.Result = System.Threading.Tasks.Task.FromResult((1200, 0));
+            expectedVersion = "";
+        }
+        else if (mode == "build-resource")
+        {
+            BM.AssetComponentConfig.AssetLoadMode = BM.AssetLoadMode.Build;
+            Hlwd.Aot.ResVersionHelper.Result = System.Threading.Tasks.Task.FromResult((1200, 7));
+            expectedVersion = "1200";
+        }
+        else if (mode == "develop-unknown-resource")
+        {
+            BM.AssetComponentConfig.AssetLoadMode = BM.AssetLoadMode.Develop;
+            Hlwd.Aot.ResVersionHelper.Result = System.Threading.Tasks.Task.FromResult((1200, 7));
+            expectedVersion = "";
+        }
+        else if (mode == "unknown-resource") Hlwd.Aot.ResVersionHelper.Result = System.Threading.Tasks.Task.FromResult((0, -1));
         else if (mode == "failed-resource") Hlwd.Aot.ResVersionHelper.Result = System.Threading.Tasks.Task.FromException<(int, int)>(new InvalidOperationException("Synthetic read failure"));
         else if (mode == "deferred-server-change") Hlwd.Aot.ResVersionHelper.Result = completion.Task;
         else if (mode == "host-destruction-retry") Hlwd.Aot.ResVersionHelper.Result = System.Threading.Tasks.Task.FromResult((12, 7));
         else throw new ArgumentException("Unknown test boundary");
         type.GetMethod("Begin").Invoke(null, null);
+        if (expectedVersion != null)
+        {
+            var publisher = UnityEngine.GameObject.Components.OfType<GameTestObservationPublisher>().Single();
+            string line = publisher.PublishOnce();
+            var source = System.Text.Json.JsonDocument.Parse(line.Substring(GameTestObservationPublisher.Marker.Length)).RootElement.GetProperty("source");
+            Require(source.GetProperty("resource_version").GetString() == expectedVersion &&
+                source.GetProperty("available").GetBoolean() == (expectedVersion != ""),
+                "Effective resource version ignored asset load mode: " + mode);
+        }
         if (mode == "deferred-server-change")
         {
             Require(UnityEngine.GameObject.Created == before, "Host created before resource read completed");
@@ -312,7 +389,123 @@ public static class ProviderReadOnlySmoke
             type.GetMethod("OnDestroy", BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(original, null);
             type.GetMethod("Begin").Invoke(null, null);
             Require(Hlwd.Aot.ResVersionHelper.Calls == 2, "Stale host released the replacement's ownership");
+            var replacement = UnityEngine.GameObject.Components.Single(value => value.GetType() == type);
+            int logs = UnityEngine.Debug.Logs.Count;
+            UnityEngine.Time.frameCount = 180;
+            type.GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(replacement, null);
+            Require(UnityEngine.Debug.Logs.Count == logs + 2 &&
+                UnityEngine.Debug.Logs[logs].StartsWith("AI_TEST_LOADED_DLL_JSON:") &&
+                UnityEngine.Debug.Logs[logs + 1].StartsWith(GameTestObservationPublisher.Marker),
+                "Replacement host did not preserve paired readonly sampling");
         }
+    }
+    private static void BootstrapAndroidPeIdentity()
+    {
+        var user = Fixture(); var terrain = Terrain(user);
+        terrain.GameBackPackInfoList.Add(1, new GuardDouble(50));
+        GameEntity.UICtrl.Windows.AddLast(new UIUpgradeWindow(GameEntity.Device.Devices[0]) { IsOpening = true });
+        GameEntity.WebRequest = new Hlwd.Game.WebRequestCtrl { ServerType = ServerType.TestServer };
+        UnityEngine.Application.isEditor = false;
+        UnityEngine.Application.platform = UnityEngine.RuntimePlatform.Android;
+        UnityEngine.Debug.isDebugBuild = true;
+        var type = typeof(ProviderReadOnlySmoke).Assembly.GetType(Bootstrap);
+        byte[] bytes = System.IO.File.ReadAllBytes(type.Assembly.Location);
+        try
+        {
+            type.GetMethod("CaptureLoadedAssembly").Invoke(null, new object[] { bytes, Guid.Empty.ToString("D") });
+            throw new InvalidOperationException("Legacy Android entry accepted unsupported runtime module signature");
+        }
+        catch (TargetInvocationException error)
+        {
+            Require(error.InnerException is InvalidOperationException,
+                "Legacy Android entry must reject before attempting runtime ModuleVersionId validation");
+        }
+        var capture = type.GetMethod("CaptureLoadedBytes", new[] { typeof(byte[]) });
+        Require(capture != null, "Single-argument loaded bytes capture entry is missing");
+        UnityEngine.Debug.isDebugBuild = false;
+        ExpectInvocationFailure(() => capture.Invoke(null, new object[] { bytes }), "Non-debug Android captured loaded bytes");
+        UnityEngine.Debug.isDebugBuild = true;
+        capture.Invoke(null, new object[] { bytes });
+        string initialIdentity = UnityEngine.Debug.Logs.Last();
+        AssertEvidence(initialIdentity, "android_player", "loaded_pe_metadata");
+        type.GetMethod("BeginWithTarget").Invoke(null, new object[] { 1, 11 });
+        var bootstrap = UnityEngine.GameObject.Components.Single(value => value.GetType() == type);
+        var update = type.GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic);
+        int before = UnityEngine.Debug.Logs.Count;
+        foreach (int frame in new[] { 30, 60 })
+        {
+            UnityEngine.Time.frameCount = frame;
+            update.Invoke(bootstrap, null);
+            update.Invoke(bootstrap, null);
+        }
+        Require(UnityEngine.Debug.Logs.Count == before + 4, "Android paired samples were missing or duplicated");
+        string session = null;
+        for (int index = 0; index < 2; index++)
+        {
+            string identity = UnityEngine.Debug.Logs[before + index * 2];
+            Require(identity == initialIdentity, "Paired Android samples changed the captured PE identity/source");
+            AssertEvidence(identity, "android_player", "loaded_pe_metadata");
+            string line = UnityEngine.Debug.Logs[before + index * 2 + 1];
+            Require(line.StartsWith(GameTestObservationPublisher.Marker), "Android identity was not followed by an observation");
+            var state = System.Text.Json.JsonDocument.Parse(line.Substring(GameTestObservationPublisher.Marker.Length)).RootElement;
+            Require(state.GetProperty("seq").GetInt64() == index + 1 &&
+                state.GetProperty("source").GetProperty("available").GetBoolean() &&
+                state.GetProperty("wallet").GetProperty("available").GetBoolean() &&
+                state.GetProperty("target").GetProperty("available").GetBoolean(),
+                "Android PE identity did not support consecutive readonly source/wallet/target observations");
+            string currentSession = state.GetProperty("session_id").GetString();
+            Require(session == null || session == currentSession, "Paired identity reset the Android observation session");
+            session = currentSession;
+        }
+        Require(terrain.DeviceInfos[11].Lv == 2 && terrain.GameBackPackInfoList[1].Value == 50,
+            "Android identity sampling changed game data");
+    }
+    private static void AssertEvidence(string line, string runtimeKind, string mvidSource)
+    {
+        const string marker = "AI_TEST_LOADED_DLL_JSON:";
+        Require(line.StartsWith(marker), "Loaded identity marker is absent");
+        var evidence = System.Text.Json.JsonDocument.Parse(line.Substring(marker.Length)).RootElement;
+        Require(evidence.GetProperty("schema").GetInt32() == 2 &&
+            evidence.GetProperty("runtime_kind").GetString() == runtimeKind &&
+            evidence.GetProperty("mvid_source").GetString() == mvidSource,
+            "Loaded identity schema/runtime/source provenance differs");
+    }
+    private static void BootstrapExplicitTarget()
+    {
+        var user = Fixture(); var terrain = Terrain(user);
+        terrain.GameBackPackInfoList.Add(1, new GuardDouble(50));
+        GameEntity.WebRequest = new Hlwd.Game.WebRequestCtrl { ServerType = ServerType.TestServer };
+        var type = typeof(ProviderReadOnlySmoke).Assembly.GetType(Bootstrap);
+        var begin = type.GetMethod("BeginWithTarget", new[] { typeof(int), typeof(int) });
+        Require(begin != null, "Explicit target bootstrap entry is missing");
+        int hosts = UnityEngine.GameObject.Created;
+        foreach (var pair in new[] { new[] { 0, 0 }, new[] { 0, 11 }, new[] { 1, 0 }, new[] { -1, 11 }, new[] { 1, -1 } })
+            ExpectInvocationFailure(() => begin.Invoke(null, new object[] { pair[0], pair[1] }), "Nonpositive target ID accepted");
+        Require(UnityEngine.GameObject.Created == hosts && Hlwd.Aot.ResVersionHelper.Calls == 0,
+            "Invalid explicit IDs started a host or read resources");
+        byte[] bytes = System.IO.File.ReadAllBytes(type.Assembly.Location);
+        type.GetMethod("CaptureLoadedAssembly").Invoke(null, new object[] { bytes, type.Assembly.ManifestModule.ModuleVersionId.ToString("D") });
+        begin.Invoke(null, new object[] { 1, 11 });
+        begin.Invoke(null, new object[] { 1, 11 });
+        type.GetMethod("Begin").Invoke(null, null);
+        Require(Hlwd.Aot.ResVersionHelper.Calls == 1 && UnityEngine.GameObject.Components.OfType<GameTestObservationPublisher>().Count() == 1,
+            "Explicit/default entry points did not share one active host");
+        var publisher = UnityEngine.GameObject.Components.OfType<GameTestObservationPublisher>().Single();
+        Func<System.Text.Json.JsonElement> target = () => System.Text.Json.JsonDocument.Parse(
+            publisher.PublishOnce().Substring(GameTestObservationPublisher.Marker.Length)).RootElement.GetProperty("target");
+        Require(!target().GetProperty("available").GetBoolean(), "Explicit target bypassed missing window verification");
+        var wrong = new UIUpgradeWindow(new Device { Id = 11, Lvl = 2, MaxLvl = 20, Cost = 12.5 }) { IsOpening = true };
+        GameEntity.UICtrl.Windows.AddLast(wrong);
+        Require(!target().GetProperty("available").GetBoolean(), "Different device object with matching ID was accepted");
+        GameEntity.UICtrl.Windows.AddLast(new UIUpgradeWindow(GameEntity.Device.Devices[0]) { IsOpening = true });
+        var actual = target();
+        Require(actual.GetProperty("available").GetBoolean() && actual.GetProperty("target_id").GetString() == "terrain:1/device:11" &&
+            actual.GetProperty("window_id").GetString() == "UIUpgradeWindow" && actual.GetProperty("level").GetInt64() == 2,
+            "Explicit IDs were not bound to the matching existing device/window");
+        GameEntity.Terrain.CurrentTerrainId = 2;
+        Require(!target().GetProperty("available").GetBoolean(), "Explicit target crossed the current terrain boundary");
+        Require(user.TerrainData.TerrainDataDic.Count == 1 && terrain.DeviceInfos[11].Lv == 2 &&
+            terrain.GameBackPackInfoList[1].Value == 50, "Explicit target sampling changed game data");
     }
     private static void ExpectInvocationFailure(Action action, string message)
     {

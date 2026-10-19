@@ -13,6 +13,7 @@ import re
 from uuid import UUID, uuid4
 
 from .bridge_v2 import ObservationStream
+from .pe_identity import read_mvid
 
 
 IDENTITY_MARKER = 'AI_TEST_LOADED_DLL_JSON:'
@@ -26,8 +27,8 @@ _RECORD = {'schema_version', 'evidence_mode', 'mode', 'manifest', 'dll_path',
            'identity_line', 'observation_line', 'transport'}
 _MANIFEST = {'schema_version', 'runtime_build_id', 'provider', 'assembly_name',
              'dll_sha256', 'module_mvid', 'source_snapshot_sha256', 'runtime_kind',
-             'resource_version', 'server', 'artifact'}
-_IDENTITY = {'schema', 'runtime_kind', 'build_id', 'assembly_name', 'dll_sha256', 'module_mvid'}
+             'resource_version', 'server', 'artifact', 'mvid_source'}
+_IDENTITY = {'schema', 'runtime_kind', 'build_id', 'assembly_name', 'dll_sha256', 'module_mvid', 'mvid_source'}
 _ARTIFACT = {'sha256', 'package', 'version_code', 'version_name'}
 _TRANSPORT = {'device_alias', 'pid', 'log_start', 'log_end', 'installed_proof', 'log_evidence'}
 _TIME = r'[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}'
@@ -49,9 +50,10 @@ def _text(value, label, limit=512):
     return value
 
 
-def _integer(value, label, maximum=(1 << 31) - 1):
-    if type(value) is not int or not 1 <= value <= maximum:
-        raise ValueError(f'{label} requires a positive bounded integer')
+def _integer(value, label, maximum=(1 << 31) - 1, *, minimum=1):
+    if type(value) is not int or not minimum <= value <= maximum:
+        kind = 'nonnegative' if minimum == 0 else 'positive'
+        raise ValueError(f'{label} requires a {kind} bounded integer')
 
 
 def _digest(value, label):
@@ -92,7 +94,7 @@ def _file(root, value, label):
     return path
 
 
-def _hash_file(path, maximum, label):
+def _hash_file(path, maximum, label, *, allow_empty=False):
     digest, total = hashlib.sha256(), 0
     with path.open('rb') as handle:
         while chunk := handle.read(min(1024 * 1024, maximum + 1 - total)):
@@ -100,15 +102,30 @@ def _hash_file(path, maximum, label):
             if total > maximum:
                 raise ValueError(f'{label} exceeds its byte budget')
             digest.update(chunk)
-    if total == 0:
+    if total == 0 and not allow_empty:
         raise ValueError(f'{label} must not be empty')
     return {'path': str(path), 'bytes': total, 'sha256': digest.hexdigest()}
 
 
+def _dll_bytes(path):
+    """Hash and retain one bounded read so MVID and SHA bind exactly the same bytes."""
+    digest, total, payload = hashlib.sha256(), 0, bytearray()
+    with path.open('rb') as handle:
+        while chunk := handle.read(min(1024 * 1024, MAX_DLL_BYTES+1-total)):
+            total += len(chunk)
+            if total > MAX_DLL_BYTES:
+                raise ValueError('DLL exceeds its byte budget')
+            digest.update(chunk)
+            payload.extend(chunk)
+    if total == 0:
+        raise ValueError('DLL must not be empty')
+    return {'path': str(path), 'bytes': total, 'sha256': digest.hexdigest()}, payload
+
+
 def _manifest(value, mode):
     _keys(value, _MANIFEST, 'manifest')
-    if type(value['schema_version']) is not int or value['schema_version'] != 1:
-        raise ValueError('manifest.schema_version must be integer 1')
+    if type(value['schema_version']) is not int or value['schema_version'] != 2:
+        raise ValueError('manifest.schema_version must be integer 2')
     for field in ('runtime_build_id', 'provider', 'assembly_name'):
         _text(value[field], 'manifest.' + field)
     for field in ('dll_sha256', 'source_snapshot_sha256'):
@@ -117,6 +134,9 @@ def _manifest(value, mode):
     expected_kind = 'editor_probe' if mode == 'assembly_probe' else 'android_player'
     if value['runtime_kind'] != expected_kind:
         raise ValueError('manifest.runtime_kind does not match the selected mode')
+    expected_source = 'runtime_api' if mode == 'assembly_probe' else 'loaded_pe_metadata'
+    if value['mvid_source'] != expected_source:
+        raise ValueError('manifest.mvid_source does not match the selected mode')
     if mode == 'assembly_probe':
         if value['artifact'] is not None or value['resource_version'] != '' or value['server'] != '':
             raise ValueError('assembly_probe requires null artifact and empty resource_version/server')
@@ -143,10 +163,10 @@ def _identity(line, manifest):
         raise ValueError('identity_line prefix must be an Android threadtime Unity prefix or empty')
     identity = _json(line.split(IDENTITY_MARKER, 1)[1], 'identity')
     _keys(identity, _IDENTITY, 'identity')
-    if type(identity['schema']) is not int or identity['schema'] != 1:
-        raise ValueError('identity.schema must be integer 1')
+    if type(identity['schema']) is not int or identity['schema'] != 2:
+        raise ValueError('identity.schema must be integer 2')
     expected = {'runtime_kind': manifest['runtime_kind'], 'build_id': manifest['runtime_build_id'],
-                **{key: manifest[key] for key in ('assembly_name', 'dll_sha256', 'module_mvid')}}
+                **{key: manifest[key] for key in ('assembly_name', 'dll_sha256', 'module_mvid', 'mvid_source')}}
     if any(identity[key] != value for key, value in expected.items()):
         raise ValueError('loaded identity does not exactly match the manifest')
     return identity
@@ -221,9 +241,12 @@ def _m2_evidence(proof, proof_path, root, verified):
         declared = _file(root, item.get('path'), 'installed_proof.evidence.path')
         if declared != path or path in seen:
             raise ValueError('installed_proof evidence paths must agree and be distinct')
-        _integer(item.get('bytes'), 'installed_proof.evidence.bytes', MAX_EVIDENCE_BYTES)
+        # M2 retains successful command stdout/stderr even when the stream is empty.
+        # Empty files still require an actual file and its exact SHA-256 binding.
+        _integer(item.get('bytes'), 'installed_proof.evidence.bytes', MAX_EVIDENCE_BYTES, minimum=0)
         _digest(item.get('sha256'), 'installed_proof.evidence.sha256')
-        observed = _hash_file(path, min(MAX_EVIDENCE_BYTES, MAX_TOTAL_EVIDENCE_BYTES - total), 'installed_proof evidence')
+        observed = _hash_file(path, min(MAX_EVIDENCE_BYTES, MAX_TOTAL_EVIDENCE_BYTES - total),
+                              'installed_proof evidence', allow_empty=True)
         if observed['bytes'] != item['bytes'] or observed['sha256'] != item['sha256']:
             raise ValueError('installed_proof referenced evidence bytes/hash do not match the file')
         total += observed['bytes']
@@ -332,10 +355,14 @@ def inspect_provider_recording(recording, *, evidence_root):
         if not root.is_dir():
             raise ValueError('evidence_root requires an existing directory')
         dll = _file(root, recording['dll_path'], 'dll_path')
-        observed = _hash_file(dll, MAX_DLL_BYTES, 'DLL')
+        observed, payload = _dll_bytes(dll)
         result['verified_files'].append(observed)
         if observed['sha256'] != recording['manifest']['dll_sha256']:
             raise ValueError('actual DLL SHA-256 does not match the manifest')
+        actual_mvid = read_mvid(payload)
+        if actual_mvid != recording['manifest']['module_mvid']:
+            raise ValueError('actual DLL PE Module MVID does not match the manifest')
+        result['dll_metadata'] = {'module_mvid': actual_mvid, 'verification': 'pe_cli_metadata'}
         identity = _identity(recording['identity_line'], recording['manifest'])
         if mode == 'assembly_probe':
             if recording['observation_line'] is not None or recording['transport'] is not None:

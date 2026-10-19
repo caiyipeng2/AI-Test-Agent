@@ -3,11 +3,13 @@ import json
 import hashlib
 from pathlib import Path
 import shutil
+import struct
 import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
-from m32_support import IDENTITY_MARKER, identity_line, provider_recording, refresh_capture_log
+from m32_support import (IDENTITY_MARKER, SYNTHETIC_MVID, identity_line, provider_recording,
+                         refresh_capture_log, synthetic_metadata_pe)
 from m3_support import line
 
 
@@ -107,6 +109,60 @@ class ProviderHandshakeTests(unittest.TestCase):
                 (self.root / self.value['dll_path']).write_bytes(content)
                 self.blocked()
 
+    def test_consistent_declared_mvid_must_still_match_actual_pe_bytes(self):
+        path = self.root / self.value['dll_path']
+        path.write_bytes(synthetic_metadata_pe())
+        self.value['manifest']['dll_sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.value['manifest']['module_mvid'] = '12345678-1234-4567-89ab-123456789abd'
+        self.change_identity(dll_sha256=self.value['manifest']['dll_sha256'],
+                             module_mvid=self.value['manifest']['module_mvid'])
+        self.blocked()
+
+    def test_legacy_manifest_and_identity_schema_are_rejected(self):
+        self.value['manifest']['schema_version'] = 1
+        self.value['manifest'].pop('mvid_source', None)
+        old = self.identity()
+        old['schema'] = 1
+        old.pop('mvid_source', None)
+        self.value['identity_line'] = identity_line(old)
+        self.blocked()
+
+    def test_schema2_provenance_and_actual_metadata_are_reported(self):
+        for mode, source in (('assembly_probe', 'runtime_api'), ('device', 'loaded_pe_metadata')):
+            with self.subTest(mode=mode):
+                self.value = provider_recording(self.root, mode)
+                result = self.inspect()
+                self.assertEqual(result['status'], 'PASS', result)
+                self.assertEqual(self.value['manifest']['schema_version'], 2)
+                self.assertEqual(self.identity()['schema'], 2)
+                self.assertEqual(self.value['manifest'].get('mvid_source'), source)
+                self.assertEqual(self.identity().get('mvid_source'), source)
+                self.assertEqual(result.get('dll_metadata'), {'module_mvid': SYNTHETIC_MVID,
+                                                             'verification': 'pe_cli_metadata'})
+
+    def test_mvid_provenance_is_exactly_bound_to_mode(self):
+        for mode, sources in (('assembly_probe', ('loaded_pe_metadata', '', 'unknown')),
+                              ('device', ('runtime_api', '', 'unknown'))):
+            for source in sources:
+                with self.subTest(mode=mode, source=source):
+                    self.value = provider_recording(self.root, mode)
+                    self.value['manifest']['mvid_source'] = source
+                    self.change_identity(mvid_source=source)
+                    if mode == 'device':
+                        refresh_capture_log(self.root, self.value)
+                    self.blocked()
+        self.value = provider_recording(self.root)
+        self.change_identity(mvid_source='loaded_pe_metadata')
+        self.blocked()
+
+    def test_non_pe_dll_redeclaration_still_blocks(self):
+        path = self.root/self.value['dll_path']
+        path.write_bytes(b'not PE, despite mutually matching declarations')
+        new_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.value['manifest']['dll_sha256'] = new_hash
+        self.change_identity(dll_sha256=new_hash)
+        self.blocked()
+
     def test_dll_is_streamed_and_size_limited(self):
         with patch.object(Path, 'read_bytes', side_effect=AssertionError('DLL must be streamed')):
             self.assertEqual(self.inspect()['status'], 'PASS')
@@ -131,7 +187,7 @@ class ProviderHandshakeTests(unittest.TestCase):
 
     def test_identity_json_duplicate_unknown_nonfinite_and_multiline_block(self):
         original = self.value['identity_line']
-        for value in [original.replace('"schema": 1', '"schema": 1,"schema": 1'),
+        for value in [original.replace('"schema": 2', '"schema": 2,"schema": 2'),
                       original[:-1] + ',"unknown":1}', original[:-1] + ',"unknown":NaN}',
                       original + '\n', original + IDENTITY_MARKER + '{}',
                       IDENTITY_MARKER + '[' * 2000 + ']' * 2000, 'not an identity line']:
@@ -297,6 +353,36 @@ class ProviderHandshakeTests(unittest.TestCase):
         (self.root / 'synthetic-m2.log').write_bytes(b'mutated evidence')
         self.blocked()
 
+    def test_m2_empty_command_output_is_rehashed_and_allowed(self):
+        self.value = provider_recording(self.root, 'device')
+        proof = self.proof()
+        path = self.root / 'command-empty-stderr.bin'
+        path.write_bytes(b'')
+        proof['evidence'].append({'kind': 'command_stderr', 'path': str(path),
+                                  'relative_path': path.name, 'bytes': 0,
+                                  'sha256': hashlib.sha256(b'').hexdigest()})
+        self.save_proof(proof)
+        result = self.inspect()
+        self.assertEqual(result['status'], 'PASS', result)
+        self.assertEqual(result['verified_files'][-1]['bytes'], 0)
+        self.assertEqual(result['verified_files'][-1]['sha256'], hashlib.sha256(b'').hexdigest())
+
+    def test_m2_empty_output_still_requires_exact_digest_and_size(self):
+        for declared_bytes, declared_hash, content in [
+                (0, 'd' * 64, b''), (0, hashlib.sha256(b'').hexdigest(), b'changed'),
+                (True, hashlib.sha256(b'').hexdigest(), b''),
+                (-1, hashlib.sha256(b'').hexdigest(), b'')]:
+            with self.subTest(bytes=declared_bytes, content=content):
+                self.value = provider_recording(self.root, 'device')
+                proof = self.proof()
+                path = self.root / 'command-empty-stderr.bin'
+                path.write_bytes(content)
+                proof['evidence'].append({'kind': 'command_stderr', 'path': str(path),
+                                          'relative_path': path.name, 'bytes': declared_bytes,
+                                          'sha256': declared_hash})
+                self.save_proof(proof)
+                self.blocked()
+
     def test_duplicate_m2_json_fields_block(self):
         self.value = provider_recording(self.root, 'device')
         path = self.root / self.value['transport']['installed_proof']
@@ -313,6 +399,126 @@ class ProviderHandshakeTests(unittest.TestCase):
         for expected in ('compiled_assembly_identity', 'synthetic', 'NOT_EVALUATED', 'device_free', 'False'):
             self.assertIn(expected, text)
         self.assertEqual(list(self.root.glob('.*.tmp')), [])
+
+
+class PeModuleIdentityTests(unittest.TestCase):
+    def read(self, value):
+        try:
+            from ai_test_agent.pe_identity import read_mvid
+        except ModuleNotFoundError:
+            self.fail('Bounded metadata-only PE MVID reader is not implemented')
+        return read_mvid(value)
+
+    def rejected(self, value):
+        with self.assertRaises(ValueError):
+            self.read(value)
+
+    def test_pe32_pe32_plus_and_unoptimized_tables_use_guid_bytes_le(self):
+        for plus in (False, True):
+            for tables in ('#~', '#-'):
+                with self.subTest(plus=plus, tables=tables):
+                    self.assertEqual(SYNTHETIC_MVID, self.read(synthetic_metadata_pe(pe32_plus=plus, tables=tables)))
+
+    def test_wide_heaps_and_nonfirst_guid_are_supported(self):
+        for strings, guids in ((2, 4), (4, 2), (4, 4)):
+            with self.subTest(strings=strings, guids=guids):
+                self.assertEqual(SYNTHETIC_MVID, self.read(synthetic_metadata_pe(
+                    string_width=strings, guid_width=guids, guid_index=2, guid_count=2)))
+
+    def test_table_extra_data_precedes_module_rows(self):
+        for plus in (False, True):
+            for tables in ('#~', '#-'):
+                for strings, guids in ((2, 2), (2, 4), (4, 2), (4, 4)):
+                    for extra in (0, 0x12345678):
+                        with self.subTest(plus=plus, tables=tables, strings=strings, guids=guids, extra=extra):
+                            self.assertEqual(SYNTHETIC_MVID, self.read(synthetic_metadata_pe(
+                                pe32_plus=plus, tables=tables, string_width=strings, guid_width=guids,
+                                guid_index=2, guid_count=2, extra_data=extra)))
+
+    def test_truncated_table_extra_data_and_following_module_are_rejected(self):
+        original = synthetic_metadata_pe(extra_data=0x12345678)
+        # The row count ends at 28; ExtraData occupies 28..31, then the Module row.
+        for size in (28, 29, 30, 31, 32, 33, 41):
+            with self.subTest(table_size=size):
+                content = bytearray(original)
+                struct.pack_into('<I', content, 0x280+36, size)
+                self.rejected(content)
+
+    def test_invalid_headers_and_every_truncation_boundary_are_rejected(self):
+        source = synthetic_metadata_pe()
+        for length in (0, 2, 0x3f, 0x83, 0x97, 0x177, 0x19f, 0x247, 0x28f, 0x2bb, 0x32f):
+            with self.subTest(length=length):
+                self.rejected(source[:length])
+        for offset in (0, 0x80, 0x280):
+            content = bytearray(source)
+            content[offset] ^= 0xff
+            self.rejected(content)
+        for offset, width, replacement in ((0x3c, 'I', 0xfffffff0), (0x98, 'H', 0x999),
+                (0x98+92, 'I', 14), (0x98+96+14*8, 'I', 0), (0x200, 'I', 71),
+                (0x20c, 'I', 0xfffffff0), (0x280+12, 'I', 0xfffffff0)):
+            content = bytearray(source)
+            struct.pack_into('<'+width, content, offset, replacement)
+            self.rejected(content)
+
+    def test_ambiguous_section_mapping_and_raw_unbacked_cli_are_rejected(self):
+        source = bytearray(synthetic_metadata_pe())
+        section = 0x98+224
+        struct.pack_into('<H', source, 0x86, 2)
+        source[section+40:section+80] = source[section:section+40]
+        self.rejected(source)
+        source = bytearray(synthetic_metadata_pe())
+        struct.pack_into('<H', source, 0x86, 2)
+        source[section+40:section+80] = source[section:section+40]
+        # Metadata starts uniquely in the first section, but its middle aliases
+        # a second section. Checking only the starting RVA would miss this.
+        struct.pack_into('<IIII', source, section+40+8, 16, 0x2090, 16, 0x300)
+        self.rejected(source)
+        source = bytearray(synthetic_metadata_pe())
+        struct.pack_into('<I', source, section+16, 32)
+        self.rejected(source)
+
+    def test_duplicate_ambiguous_overlapping_and_header_backed_streams_are_rejected(self):
+        original = synthetic_metadata_pe()
+        for case in ('duplicate_guid', 'both_tables', 'overlap', 'header', 'unbounded', 'unaligned_guid'):
+            with self.subTest(case=case):
+                content = bytearray(original)
+                if case in ('duplicate_guid', 'both_tables'):
+                    struct.pack_into('<H', content, 0x280+30, 3)
+                    struct.pack_into('<II', content, 0x280+60, 0x100, 16)
+                    name = b'#GUID\0\0\0' if case == 'duplicate_guid' else b'#-\0\0'
+                    content[0x280+68:0x280+68+len(name)] = name
+                    struct.pack_into('<I', content, 0x20c, 0x180)
+                else:
+                    offset, size = {'overlap': (0x60, 16), 'header': (0x20, 16),
+                                    'unbounded': (0xa0, 0xfffffff0), 'unaligned_guid': (0xa0, 15)}[case]
+                    struct.pack_into('<II', content, 0x280+44, offset, size)
+                self.rejected(content)
+
+    def test_module_row_count_guid_index_and_empty_mvid_are_rejected(self):
+        missing = bytearray(synthetic_metadata_pe())
+        struct.pack_into('<Q', missing, 0x280+0x60+8, 0)
+        self.rejected(missing)
+        for count in (0, 2):
+            content = bytearray(synthetic_metadata_pe())
+            struct.pack_into('<I', content, 0x280+0x60+24, count)
+            self.rejected(content)
+        for index in (0, 2):
+            self.rejected(synthetic_metadata_pe(guid_index=index))
+        self.rejected(synthetic_metadata_pe(mvid='00000000-0000-0000-0000-000000000000'))
+        for size in (23, 27, 35):
+            content = bytearray(synthetic_metadata_pe())
+            struct.pack_into('<I', content, 0x280+36, size)
+            self.rejected(content)
+
+    def test_non_pe_data_types_and_bounded_input_are_rejected(self):
+        for data in (None, 42, 'MZ', b'not an assembly'):
+            self.rejected(data)
+        try:
+            import ai_test_agent.pe_identity as module
+        except ModuleNotFoundError:
+            self.fail('Bounded metadata-only PE MVID reader is not implemented')
+        with patch.object(module, 'MAX_PE_BYTES', 1024):
+            self.rejected(synthetic_metadata_pe())
 
 
 if __name__ == '__main__':

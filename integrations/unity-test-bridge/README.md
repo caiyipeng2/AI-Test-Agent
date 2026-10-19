@@ -1,22 +1,32 @@
 # 只读 Unity 状态与流水桥
 
-这是供专用测试构建接入的模块，尚未安装进本轮新Android包或通过真实游戏业务验收。schema1快照入口保持兼容，M3.1新增独立schema2状态/流水发布器；M3.2增加IdleOutpost只读适配源码与加载身份，已进行真实源码隔离编译。`BridgeCompileSmoke`和`ObservationCompileSmoke`验证独立合成宿主；实际程序集探测的范围另行记录，不能代替真机运行。
+这是供专用测试构建接入的模块。schema1快照入口保持兼容，M3.1新增独立schema2状态/流水发布器；M3.2增加IdleOutpost只读适配与加载身份。当前加载身份及manifest为schema2。R3已修复Android IL2CPP身份读取和Main窗口映射，完成资源1019专包的两轮实际安装启动及只读闭环，等待用户验收后合并；业务升级、金币扣减和完整流水仍未评估。
 
-模块没有 socket、业务写接口、自动点击、金币或等级修改。项目适配器显式实现 `IGameTestStateProvider`，仅读取已经存在的状态，调用 `publisher.Install(provider)` 后使用 `PublishOnce()`，或明确指定采样帧间隔。未安装 provider 时不扫描业务对象、不调用业务 getter。
+模块没有 socket、业务写接口、自动点击、金币或等级修改。项目适配器按所用协议显式实现`IGameTestStateProvider`或`IGameTestObservationProvider`，仅读取已经存在的状态，调用`publisher.Install(provider)`后使用`PublishOnce()`，或明确指定采样帧间隔。未安装provider时不扫描业务对象、不调用业务getter。
 
 Runtime 文件在 `UNITY_EDITOR || (DEVELOPMENT_BUILD && AI_TEST_AGENT_BRIDGE)` 条件下编译；Development 构建仍需额外设置 `AI_TEST_AGENT_BRIDGE`。已用五种编译符号组合检查二进制中的类型是否按guard出现，实际APK/AAB发布构建是否排除仍须在真实构建流程验证。
 
 ## M3.2：显式项目适配与加载身份
 
-`Runtime/`保留游戏无关协议与`GameTestLoadedAssemblyIdentity`；`Adapters/IdleOutpost/`仅维护该项目的只读映射及Bootstrap。迁移游戏时替换适配层和实际加载钩子，审核getter副作用、货币范围、窗口/目标含义及构建方式，宿主协议不依赖特定游戏枚举或默认设备。
+`Runtime/`保留游戏无关协议、`GameTestLoadedAssemblyIdentity`和无第三方依赖的`GameTestPeModuleIdentity`；`Adapters/IdleOutpost/`仅维护该项目的只读映射及Bootstrap。迁移游戏时替换适配层和实际加载钩子，审核getter副作用、货币范围、窗口/目标含义及构建方式，宿主协议不依赖特定游戏枚举或默认设备。
 
-`IdleOutpostReadOnlyProvider`只读已初始化缓存与原始存档字典，不调用会插入默认值的业务getter。等级核对运行值与已有存档，成本读取已计算值；钱包保留源double的往返表示，未知不可填0。固定目标未配置时不猜首个设备；窗口不存在、关闭或目标不匹配时target整体不可用。账本保持不可用/不完整，不能用于真实升级扣款通过。
+`IdleOutpostReadOnlyProvider`只读已初始化缓存与原始存档字典，不调用会插入默认值的业务getter。等级核对运行值与已有存档，成本读取已计算值；钱包保留源double的往返表示，未知不可填0。固定目标未配置时不猜首个设备。R3按照实际升级窗口配置ID4枚举已有`UIGroupEnum.Main=100`窗口，核对打开、活动和`m_Upgradeable`同一对象引用；不存在、关闭或目标不匹配时target整体不可用。账本保持不可用/不完整，不能用于真实升级扣款通过。
 
-`IdleOutpostBridgeBootstrap.CaptureLoadedAssembly(byte[], string mvid)`必须从实际加载边界收到同一byte[]，核对Bootstrap所在Assembly的MVID，并发布`AI_TEST_LOADED_DLL_JSON:`。`Begin()`只在Editor或Android Development Player、实际TestServer及显式初始化入口下安装Provider；使用隔离编译工具生成的`AiTestAgent.Generated.ProviderBuildStamp.Value`，不提供默认生产stamp。运行目标默认为`0/0`，30帧采样；异步失败、服务器变化和宿主销毁后的重试由回归覆盖。
+R2实机曾打开等级1、成本8.71T的真实升级窗口，但旧adapter误读PopUp=200而返回target不可用。R3修正项目映射并重新构建验证，使用明确目标47/215与资源1019；两轮实际采集source/wallet/target均可用，等级1、精确cost`8708971337959.25`与截图8.71T显示粒度相容。R2资源1018证据保持原样，没有改日志或强制available绕过。Main/PopUp分离的正反例继续验证窗口及目标门禁。
+
+`IdleOutpostBridgeBootstrap.CaptureLoadedBytes(byte[])`必须从实际`Assembly.Load`边界收到同一byte[]。Editor调用`Identity.Capture(bytes, assembly)`，将PE MVID与RuntimeModule API交叉核对并标记`mvid_source=runtime_api`；Android Development调用`CaptureFromLoadedPe(bytes, assembly)`，只从加载字节的PE/CLI元数据读取MVID并标记`loaded_pe_metadata`，不读取RuntimeModule。原因是本次IL2CPP工具链的`GetGuidInternal`未提供可用模块GUID；不修改该工具链，也不将其私有实现复制到公共仓库。旧双参`CaptureLoadedAssembly(byte[], string)`仅保留Editor兼容，Android直接拒绝。
+
+身份行`AI_TEST_LOADED_DLL_JSON:`的`schema=2`、manifest的`schema_version=2`均增加`mvid_source`；外层recording仍为`schema_version=1`，状态/流水observation仍为`schema=2`。来源标签必须匹配运行模式，已捕获身份不能切换来源。宿主从同次读取的实际DLL字节同时校验SHA256和PE MVID；旧schema1身份应使用对应旧提交复评，不能修改历史行补成新证据。
+
+`Begin()`只在Editor或Android Development Player、实际TestServer及显式初始化入口下安装Provider；使用生成的`AiTestAgent.Generated.ProviderBuildStamp.Value`，不提供默认生产stamp。默认目标为`0/0`；`BeginWithTarget(terrainId, deviceId)`要求两个正ID，与默认入口共享宿主，不自动发现目标。每30帧成对发布已捕获identity及当前observation，保留原session/seq；异步失败、服务器变化和宿主销毁后的重试由回归覆盖。资源号按实际BM模式选择：Local仅取内置版本，Build取热更/内置最大值，Develop或无有效版本保持未知。
 
 全部桥源码及调用钩子需使用相同编译guard。桥与适配器放入hotfix程序集，AOT加载钩子使用保留的反射入口，避免反向引用；加载钩子变化需要完整AOT/IL2CPP专用包，不能仅替换旧安装包中的DLL。测试身份stamp、实际DLL SHA/MVID和最终包hash由外部清单关联。
 
-宿主命令为`inspect-provider-m3 INPUT --output PATH.json`。Editor程序集探测只能获得`compiled_assembly_identity`；device记录需实际日志文件及M2已装证据，离线结果仍为`execution=device_free, live_provider=false, business_status=NOT_EVALUATED`。完整字段、结构图、接入步骤和验收清单见[M3.2文档](../../docs/m3/runtime-provider.md)，实际执行见[本轮验证记录](../../docs/verification/2026-10-16-m32-runtime-provider.md)。
+宿主命令为`inspect-provider-m3 INPUT --output PATH.json`。Editor程序集探测只能获得`compiled_assembly_identity`；device记录需实际日志文件及M2已装证据，正常空命令输出仍须校验空文件SHA。离线结果保持`scope=provider_runtime_identity, execution=device_free, live_provider=false, business_status=NOT_EVALUATED`。本轮Local专包不生成远端资源更新日志，M2使用`expected_resource_version=null`只判启动就绪；R3包内1019与两轮实际M3 source1019已交叉核验，没有复用1018批准清单。
+
+两轮每次核验170份文件，run/attempt/PID/session不同且配置相同；同一录制的两次标准CLI复评input SHA相同、assessment ID不同、结论一致。账本保持不可用/不完整，钱包存在同期收益，不能据两轮余额变化推定扣款。实际操作、截图、完整证据留本地，脱敏结果见[实机验证记录](../../docs/verification/2026-10-16-m32-android-device-loop.md)。
+
+完整字段、结构图、接入步骤及验收清单见[M3.2文档](../../docs/m3/runtime-provider.md)，专用包步骤见[项目构建recipe](Editor/BuildRecipes/README.md)。recipe依赖IdleOutpost构建API，并有独立opt-in编译守卫；通用核心及其他游戏不依赖该recipe。此前提交`20bd0ff`的schema1身份/Editor探测见[历史验证记录](../../docs/verification/2026-10-16-m32-runtime-provider.md)，其中结果不表示后续schema2专包已通过。
 
 ## M3.1 schema2：明确状态与连续流水
 
@@ -48,7 +58,7 @@ Python入口 `parse_observation_line(line)` 保留精确金额文本；`Observat
 
 `AiTestAgent.Bridge.Editor.ObservationCompileSmoke.Run` 在独立UnityHost验证合成可用/不可用/不完整数据、精确金额、主线程与未安装Provider失败分支，成功标记为 `OBSERVATION_COMPILE_SMOKE_PASS`。本轮已观察到缺少发布器时RED、实现后GREEN，发布日志通过Python解析；这是合成往返验证，不是真实升级测试。
 
-记录关联还要求设备时间/PID、前后session/seq、目标/窗口/币种、采集时间括号及evidence_root中的实际不同PNG绑定，并用连续事务流水解释同期收益。使用和可移植正负例见[M3.1说明](../../docs/m3/README.md)。离线PASS仅表示记录一致性，始终 `business_status=NOT_EVALUATED`、`execution=device_free`；本环没有设备操作，也不创建M0已执行run。
+记录关联还要求设备时间/PID、前后session/seq、目标/窗口/币种、采集时间括号及evidence_root中的实际不同PNG绑定，并用连续事务流水解释同期收益。使用和可移植正负例见[M3.1说明](../../docs/m3/README.md)。上述M3.1离线核验不执行设备操作，也不创建M0已执行run；其PASS仅表示记录一致性，始终`business_status=NOT_EVALUATED`、`execution=device_free`。M3.2的实际设备动作另留执行证据，不能扩大离线命令的成功范围。
 
 ## 既有schema1快照入口
 

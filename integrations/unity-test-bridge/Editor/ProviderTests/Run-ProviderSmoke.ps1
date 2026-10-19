@@ -16,6 +16,7 @@ $project = @"
     <Compile Include="$repoXml\integrations\unity-test-bridge\Runtime\GameTestStatePublisher.cs" />
     <Compile Include="$repoXml\integrations\unity-test-bridge\Runtime\GameTestObservationPublisher.cs" />
     <Compile Include="$repoXml\integrations\unity-test-bridge\Runtime\GameTestLoadedAssemblyIdentity.cs" Condition="Exists('$repoXml\integrations\unity-test-bridge\Runtime\GameTestLoadedAssemblyIdentity.cs')" />
+    <Compile Include="$repoXml\integrations\unity-test-bridge\Runtime\GameTestPeModuleIdentity.cs" />
     <Compile Include="$repoXml\integrations\unity-test-bridge\Adapters\IdleOutpost\*.cs" />
     <Compile Include="$repoXml\integrations\unity-test-bridge\Editor\ProviderTests\*.cs" />
   </ItemGroup>
@@ -30,7 +31,7 @@ if ($LASTEXITCODE -ne 0) { throw "Synthetic provider smoke did not compile (exit
 & dotnet (Join-Path $OutputDirectory 'bin\Release\net9.0\ProviderSmoke.dll')
 if ($LASTEXITCODE -ne 0) { throw "Synthetic provider smoke failed (exit $LASTEXITCODE)" }
 if ($DefineConstants.Contains('UNITY_EDITOR') -or ($DefineConstants.Contains('DEVELOPMENT_BUILD') -and $DefineConstants.Contains('AI_TEST_AGENT_BRIDGE'))) {
-    foreach ($boundary in @('unknown-resource', 'failed-resource', 'deferred-server-change', 'host-destruction-retry')) {
+    foreach ($boundary in @('unknown-resource', 'failed-resource', 'deferred-server-change', 'host-destruction-retry', 'local-resource', 'local-unknown-resource', 'build-resource', 'develop-unknown-resource', 'explicit-target-bootstrap', 'android-pe-bootstrap')) {
         & dotnet (Join-Path $OutputDirectory 'bin\Release\net9.0\ProviderSmoke.dll') $boundary
         if ($LASTEXITCODE -ne 0) { throw "Synthetic resource boundary failed: $boundary (exit $LASTEXITCODE)" }
     }

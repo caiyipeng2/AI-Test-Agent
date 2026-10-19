@@ -93,12 +93,17 @@ namespace Hlwd.PB
 }
 namespace Hlwd.Framework
 {
-    public enum UIGroupEnum { PopUp = 200 }
+    public enum UIGroupEnum { Main = 100, PopUp = 200 }
     public class UIWindow { public bool IsOpening; public UnityEngine.GameObject gameObject = new UnityEngine.GameObject("synthetic-window"); }
     public sealed class UICtrl
     {
+        // Match the actual window-4 configuration: UIUpgradeWindow belongs to Main (100).
         public readonly LinkedList<UIWindow> Windows = new LinkedList<UIWindow>();
-        public LinkedList<UIWindow> GetUIWindowsByGroup(UIGroupEnum group) { return Windows; }
+        public readonly LinkedList<UIWindow> PopUpWindows = new LinkedList<UIWindow>();
+        public LinkedList<UIWindow> GetUIWindowsByGroup(UIGroupEnum group)
+        {
+            return group == UIGroupEnum.Main ? Windows : (group == UIGroupEnum.PopUp ? PopUpWindows : null);
+        }
     }
 }
 namespace Hlwd.Game { public sealed class WebRequestCtrl { public ServerType ServerType; } }
@@ -110,6 +115,11 @@ namespace Hlwd.Aot
         public static Task<(int, int)> Result = Task.FromResult((12, 7));
         public static Task<(int, int)> LoadLocalResVersion() { Calls++; return Result; }
     }
+}
+namespace BM
+{
+    public enum AssetLoadMode { Develop = 0, Local = 1, Build = 2 }
+    public static class AssetComponentConfig { public static AssetLoadMode AssetLoadMode = AssetLoadMode.Build; }
 }
 public enum ServerType { LocalServer = 0, TestServer = 2, ProduceServer = 3 }
 public enum PropsIdEnum { Coin = 1 }

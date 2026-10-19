@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-**M0、M1、M2及M3.1均已由用户验收并合并main；M3.2在独立分支准备验收。** M1支持原始DOCX自动AI分析和人工审核；M2完成批准的场景回调里程碑实机闭环；M3.1提供schema2与无设备状态/流水判定。M3.2新增真实游戏只读Provider源码、运行身份握手及真实源码隔离编译，尚无含新桥的Android专用测试包。真实Provider实机验收、升级及五次业务复跑仍待完成，不能视为M3整体完成。
+**M0、M1、M2及M3.1均已由用户验收并合并main；M3.2等待本轮用户验收。** M1支持原始DOCX自动AI分析和人工审核；M2完成批准的场景回调里程碑实机闭环；M3.1提供schema2与无设备状态/流水判定。M3.2已基于当前本地基线构建资源1019的Android专包，在Samsung完成两轮保留数据安装、真实桥身份、设备窗口/等级/成本及钱包核验，340份引用证据复核通过。升级扣款及五次业务复跑仍待后续阶段，不能视为M3全部完成。
 
 | 文档 | 用途 |
 | --- | --- |
@@ -21,6 +21,7 @@
 | [M3.1 验证记录](docs/verification/2026-10-16-m3-readonly-evidence.md) | Python回归、合成文件流程、Unity Host与编译guard验证及尚未接入边界 |
 | [M3.2 真实Provider与运行身份](docs/m3/runtime-provider.md) | 标准层/项目适配层结构图、只读读取点、加载身份、宿主合同与专用包路径 |
 | [M3.2 验证记录](docs/verification/2026-10-16-m32-runtime-provider.md) | 真实源码编译、输入保全、程序集探测及尚未执行的Android验收边界 |
+| [M3.2 Android 专包实测](docs/verification/2026-10-16-m32-android-device-loop.md) | 本地基线构建、SDK兼容修复、真实安装及当次桥证据；按实际结果更新 |
 
 ## 推荐推进顺序
 
@@ -49,4 +50,4 @@ M3.1入口为 `assess-recording-m3 INPUT --output PATH.json`，读取输入父�
 
 M3.2入口为 `inspect-provider-m3 INPUT --output PATH.json`，复核实际DLL文件与加载身份、清单，以及device记录所需的当次日志和M2已装证明；不操作设备或调用模型。`assembly_probe`只报告编译程序集身份，`device`也只离线复核提供的记录，始终`live_provider=false`且业务`NOT_EVALUATED`。通用内核与项目读取点分开维护，详细结构及可验收范围见[M3.2文档](docs/m3/runtime-provider.md)。
 
-截至2026-10-16，当前Samsung已装用户指定的v65测试包，两轮标准M2命令均完成保留数据更新安装，并观测到TestServer及本地/远端资源1016/1016，结果均为 `PASS / READINESS_CONFIRMED`。用户批准本轮以登录、玩家初始化、场景加载回调日志及连续3次进程/前台稳定、无归属本包的崩溃或ANR作为M2验收范围；它不证明初始化完成、主界面可交互或业务正确。M2的PASS仅为合同约定的 `startup_readiness`，业务为 `NOT_EVALUATED`；M0交接保持草稿及外部M2执行链，`m0_run_imported=false`，导出成功不等于测试通过。M3.2保护原游戏工作区，在私有冻结副本验证Provider及测试加载钩子；新专用包必须经过完整构建与实际安装核验，不能直接把新DLL替换进旧v65。
+历史M2验收于2026-10-16使用用户指定的v65测试包，两轮标准M2命令均完成保留数据更新安装，并观测到TestServer及本地/远端资源1016/1016，结果均为 `PASS / READINESS_CONFIRMED`。用户批准以登录、玩家初始化、场景加载回调日志及连续3次进程/前台稳定、无归属本包的崩溃或ANR作为M2验收范围；它不证明初始化完成、主界面可交互或业务正确。M2的PASS仅为合同约定的 `startup_readiness`，业务为 `NOT_EVALUATED`；M0交接保持草稿及外部M2执行链，`m0_run_imported=false`，导出成功不等于测试通过。M3.2保护原游戏工作区，在私有冻结副本完整构建新专包；最新实际安装和只读证据见[Android专包实测](docs/verification/2026-10-16-m32-android-device-loop.md)，不能直接把新DLL替换进旧v65。

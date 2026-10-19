@@ -1,5 +1,7 @@
 # M3.2 真实只读 Provider 与运行身份验证
 
+> 版本说明：本记录对应提交[`20bd0ff`](https://github.com/caiyipeng2/AI-Test-Agent/commit/20bd0ffcf810b7ee10e47479ade6398b55de7979)，加载身份及manifest为schema1，observation为schema2。以下442项测试、21个桥类型等均保留当时实测数据。后续Android专包针对IL2CPP MVID不可用新增schema2身份/manifest及`mvid_source`；当前合同见[M3.2说明](../m3/runtime-provider.md)，专包执行见[独立计划](../superpowers/plans/2026-10-16-m32-device-package.md)。旧记录应使用对应提交复评，不重写历史日志或补来源标签；本文不证明后续schema2专包或实机已通过。
+
 2026-10-16。**本轮实现、真实源码隔离编译、严格Editor程序集探测及宿主文件复核闭环已完成，供用户验收后合并。尚无含新桥的Android专用测试包，未进行M3.2实机验收。** 原游戏工作区保持不动，没有设备、账号、升级或支付操作。
 
 ## 交付及证据层级

@@ -11,12 +11,13 @@ namespace AiTestAgent.Bridge
     [Serializable]
     public sealed class LoadedAssemblyEvidence
     {
-        public int schema = 1;
+        public int schema = 2;
         public string runtime_kind;
         public string build_id;
         public string assembly_name;
         public string dll_sha256;
         public string module_mvid;
+        public string mvid_source;
     }
 
     // The loader must pass the exact byte[] used by Assembly.Load and that returned Assembly.
@@ -28,6 +29,7 @@ namespace AiTestAgent.Bridge
         public string AssemblyName { get; private set; }
         public string DllSha256 { get; private set; }
         public string ModuleMvid { get; private set; }
+        public string MvidSource { get; private set; }
         private Assembly capturedAssembly;
         private bool invalidated;
 
@@ -39,6 +41,19 @@ namespace AiTestAgent.Bridge
 
         public void Capture(byte[] loadedBytes, Assembly loadedAssembly)
         {
+            CaptureCore(loadedBytes, loadedAssembly, true);
+        }
+
+        // IL2CPP does not expose a module GUID in this target runtime. The audited
+        // loader supplies the exact bytes it passed to Assembly.Load; this method
+        // records their Module table MVID without pretending a runtime API supplied it.
+        public void CaptureFromLoadedPe(byte[] loadedBytes, Assembly loadedAssembly)
+        {
+            CaptureCore(loadedBytes, loadedAssembly, false);
+        }
+
+        private void CaptureCore(byte[] loadedBytes, Assembly loadedAssembly, bool useRuntimeApi)
+        {
             if (invalidated) throw new InvalidOperationException("Conflicting capture invalidated this identity context");
             try
             {
@@ -46,8 +61,10 @@ namespace AiTestAgent.Bridge
                     throw new ArgumentException("Actual loaded DLL bytes are required within the 256 MiB budget");
                 if (loadedAssembly == null || loadedAssembly.GetName().Name != AssemblyName)
                     throw new ArgumentException("Actual loaded assembly does not match its explicit name");
-                Guid mvid = loadedAssembly.ManifestModule.ModuleVersionId;
-                if (mvid == Guid.Empty) throw new InvalidOperationException("Loaded module identity is unavailable");
+                Guid mvid = GameTestPeModuleIdentity.ReadMvid(loadedBytes);
+                if (useRuntimeApi && loadedAssembly.ManifestModule.ModuleVersionId != mvid)
+                    throw new InvalidOperationException("Runtime module identity does not match the actual loaded PE bytes");
+                string observedSource = useRuntimeApi ? "runtime_api" : "loaded_pe_metadata";
                 string observedMvid = mvid.ToString("D").ToLowerInvariant();
                 string observedHash;
                 using (var sha = SHA256.Create())
@@ -57,11 +74,13 @@ namespace AiTestAgent.Bridge
                     foreach (byte value in digest) text.Append(value.ToString("x2", CultureInfo.InvariantCulture));
                     observedHash = text.ToString();
                 }
-                if (Available && (capturedAssembly != loadedAssembly || DllSha256 != observedHash || ModuleMvid != observedMvid))
+                if (Available && (capturedAssembly != loadedAssembly || DllSha256 != observedHash ||
+                    ModuleMvid != observedMvid || MvidSource != observedSource))
                     throw new InvalidOperationException("Loaded identity changed; create a new capture context");
                 capturedAssembly = loadedAssembly;
                 DllSha256 = observedHash;
                 ModuleMvid = observedMvid;
+                MvidSource = observedSource;
                 Available = true;
             }
             catch
@@ -73,6 +92,7 @@ namespace AiTestAgent.Bridge
                     capturedAssembly = null;
                     DllSha256 = null;
                     ModuleMvid = null;
+                    MvidSource = null;
                 }
                 throw;
             }
@@ -93,9 +113,12 @@ namespace AiTestAgent.Bridge
             if (!Known(buildId)) throw new ArgumentException("Explicit runtime build stamp required");
             if (runtimeKind != "editor_probe" && runtimeKind != "android_player")
                 throw new ArgumentException("Runtime kind must explicitly distinguish Editor from Android");
+            if ((runtimeKind == "editor_probe" && MvidSource != "runtime_api") ||
+                (runtimeKind == "android_player" && MvidSource != "loaded_pe_metadata"))
+                throw new InvalidOperationException("MVID provenance must match the declared runtime evidence mode");
             return Marker + JsonUtility.ToJson(new LoadedAssemblyEvidence {
                 runtime_kind = runtimeKind, build_id = buildId, assembly_name = AssemblyName,
-                dll_sha256 = DllSha256, module_mvid = ModuleMvid
+                dll_sha256 = DllSha256, module_mvid = ModuleMvid, mvid_source = MvidSource
             });
         }
 
