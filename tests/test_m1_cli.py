@@ -30,6 +30,32 @@ class M1CliTests(unittest.TestCase):
                 if path.exists():
                     path.unlink()
 
+    def test_review_can_target_single_cases(self):
+        root = Path(__file__).resolve().parents[1]
+        source = root / 'fixtures' / 'm1-source.example.json'
+        draft = root / '.local' / 'm1-case-review-draft.json'
+        reviewed = root / '.local' / 'm1-case-review-partial.json'
+        draft.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.assertEqual(main(['analyze-m1', str(source), '--output', str(draft)]), 0)
+            analysis = json.loads(draft.read_text(encoding='utf-8'))
+            self.assertGreaterEqual(len(analysis['cases']), 2)
+            target = analysis['cases'][0]['case_id']
+            other = analysis['cases'][1]['case_id']
+            self.assertEqual(main([
+                'review-m1', str(draft), '--output', str(reviewed),
+                '--reviewer', 'qa-owner', '--decision', 'changes_requested',
+                '--comment', 'only this case', '--case-id', target,
+            ]), 0)
+            result = json.loads(reviewed.read_text(encoding='utf-8'))
+            by_id = {case['case_id']: case for case in result['cases']}
+            self.assertEqual(by_id[target]['review_status'], 'CHANGES_REQUESTED')
+            self.assertEqual(by_id[other]['review_status'], 'DRAFT')
+        finally:
+            for path in (draft, reviewed):
+                if path.exists():
+                    path.unlink()
+
     def test_manual_result_and_gap_report_cli_are_device_free(self):
         root = Path(__file__).resolve().parents[1]
         source = root / 'fixtures' / 'm1-source.example.json'

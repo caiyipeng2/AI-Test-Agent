@@ -37,6 +37,8 @@ def main(argv=None):
     m1_review.add_argument('--reviewer', required=True)
     m1_review.add_argument('--decision', choices=['approved', 'changes_requested', 'rejected'], required=True)
     m1_review.add_argument('--comment', required=True)
+    m1_review.add_argument('--case-id', action='append', dest='case_ids', default=None,
+                           help='review only this case id; repeatable')
     m1_promote = commands.add_parser('promote-m1', help='create a blocked or bound M0 handoff envelope')
     m1_promote.add_argument('input')
     m1_promote.add_argument('--output', required=True)
@@ -157,7 +159,10 @@ def main(argv=None):
             from .m1 import review_result
             from .requirements import read_json
             draft = read_json(args.input)
-            result_data = review_result(draft, {'reviewer': args.reviewer, 'decision': args.decision, 'comment': args.comment})
+            review_request = {'reviewer': args.reviewer, 'decision': args.decision, 'comment': args.comment}
+            if args.case_ids:
+                review_request['case_ids'] = args.case_ids
+            result_data = review_result(draft, review_request)
             Path(args.output).parent.mkdir(parents=True, exist_ok=True)
             Path(args.output).write_text(json.dumps(result_data, ensure_ascii=False, indent=2), encoding='utf-8')
             result = {'status': 'PASS', 'output': str(Path(args.output).resolve()), 'decision': args.decision}
