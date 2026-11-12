@@ -61,6 +61,11 @@ def main(argv=None):
     doc_analyze.add_argument('--output-dir', required=True)
     doc_analyze.add_argument('--provider-config', required=True)
     doc_analyze.add_argument('--allow-model', action='store_true', help='authorize sending this document and image attachments to the configured provider')
+    media_describe = commands.add_parser('describe-media', help='describe video keyframes with the configured vision provider')
+    media_describe.add_argument('--frames', required=True, help='directory containing sorted frame-*.png files')
+    media_describe.add_argument('--provider-config', required=True)
+    media_describe.add_argument('--output', required=True)
+    media_describe.add_argument('--allow-model', action='store_true', help='authorize sending the frames to the configured provider')
     m2_smoke = commands.add_parser('m2-smoke', help='run an explicit test-only Android install/startup contract')
     m2_smoke.add_argument('--contract', required=True)
     m2_report = commands.add_parser('m2-report', help='verify local M2 evidence and export a device-free M0 draft handoff')
@@ -124,6 +129,15 @@ def main(argv=None):
             run = analyze_document(args.input, args.output_dir, load_provider(args.provider_config), allow_model_access=args.allow_model)
             result = {key: run[key] for key in ('status', 'stage', 'analysis_id', 'counts', 'category', 'reason',
                        'model_calls', 'human_review_status', 'm0_handoff_status', 'output_directory') if key in run}
+        elif args.command == 'describe-media':
+            from .media_describe import describe_frames
+            described = describe_frames(
+                args.frames,
+                args.provider_config,
+                args.output,
+                allow_model_access=args.allow_model,
+            )
+            result = {'status': 'PASS', 'output': str(Path(args.output).resolve()), 'frames': len(described['scenes'])}
         elif args.command == 'assess-upgrade':
             from .upgrade import assess_upgrade
             data = json.loads(Path(args.input).read_text(encoding='utf-8-sig'))
