@@ -227,6 +227,42 @@ class AnalysisProtocolTests(unittest.TestCase):
         with self.assertRaises(M1ValidationError):
             compile_payload(images=[dict(images[0], section_id="absent")])
 
+    def test_whiteboard_tokens_are_text_not_image_attachments(self):
+        source = source_document()
+        source["sections"].append({
+            "section_id": "s3", "title": "白板", "locator": "paragraph:3",
+            "text": '<whiteboard token="wb123"></whiteboard>',
+        })
+        payload = model_payload()
+        payload["section_dispositions"].append({
+            "section_id": "s3", "disposition": "unreadable", "reason": "白板只有文字占位，没有图片像素。",
+        })
+        payload["image_observations"] = [{
+            "image_id": "wb123", "status": "unreadable", "description": "白板没有提供像素，无法核对布局。",
+        }]
+
+        result = compile_payload(payload, source)
+
+        self.assertEqual(result["extensions"]["auto_document_analysis"]["image_observations"], [])
+
+    def test_unknown_image_ids_still_fail(self):
+        payload = model_payload()
+        payload["image_observations"] = [{
+            "image_id": "not-a-whiteboard", "status": "read", "description": "模型声称读取了一张不存在的图片。",
+        }]
+        with self.assertRaises(M1ValidationError):
+            compile_payload(payload)
+
+    def test_prompt_says_whiteboards_are_not_image_attachments(self):
+        source = source_document()
+        source["sections"][1]["text"] += '\n<whiteboard token="wb123"></whiteboard>'
+        prompt = protocol().build_analysis_prompt({
+            "source": source, "manifest": {}, "images": [], "warnings": [],
+        })
+        self.assertIn("白板", prompt)
+        self.assertIn("不是图片附件", prompt)
+        self.assertIn("没有 images 时该数组必须为 []", prompt)
+
     def test_schema_is_strict_with_every_object_property_required(self):
         schema = protocol().MODEL_OUTPUT_SCHEMA
         def inspect(node):

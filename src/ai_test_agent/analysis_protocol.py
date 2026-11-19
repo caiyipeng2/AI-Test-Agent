@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from copy import deepcopy
 
 from .m1 import (
@@ -67,6 +68,7 @@ questions 每项含 id/description/section_ids/priority/owner；未知负责人�
 section_dispositions 必须逐节且恰好一次，含 section_id/disposition/reason。covered 必须被至少一个 unit 引用；context/superseded/unreadable 不得被 unit 引用。
 context 仅适用于确实没有待验证功能的上下文，不能借此跳过功能需求。无法解析的功能内容必须写 unreadable，并提问。
 逐图检查附件是否可读。image_observations 每张图一项 image_id/status/description，status 为 read/unreadable。实际未提供的图片不得声称已读；不能根据文件名猜图。
+source 中的 <whiteboard token="..."> 是白板文字的占位标记，不是图片附件；不要把它写进 image_observations。image_observations 只列本次 images 中实际提供的附件；没有 images 时该数组必须为 []。
 不要输出或修改原文、来源哈希、M1 ID、source_anchors、批准标志、review 或审核记录。所有输出都将由宿主创建为 DRAFT，交由人工确认。
 """
 
@@ -155,6 +157,18 @@ def _section_refs(section_ids, section_map, where):
         raise M1ValidationError(f"{where} contains unknown section reference")
 
 
+WHITEBOARD_TOKEN = re.compile(r'<whiteboard\s+token="([A-Za-z0-9]+)"\s*>')
+
+
+def _whiteboard_tokens(source):
+    tokens = set()
+    for section in source.get("sections", []):
+        text = section.get("text")
+        if isinstance(text, str):
+            tokens.update(WHITEBOARD_TOKEN.findall(text))
+    return tokens
+
+
 def _image_map(images, section_map):
     if not isinstance(images, (list, tuple)):
         raise M1ValidationError("images must be a list or tuple of attachments")
@@ -185,6 +199,7 @@ def compile_analysis(source: dict, payload: dict, *, provider_id: str, model_id:
     payload = deepcopy(payload)
     sections = {section["section_id"]: section for section in source["sections"]}
     attachments = _image_map(images, sections)
+    whiteboards = _whiteboard_tokens(source)
     _unique([u["unit_id"] for u in payload["units"]], "units")
     _unique([c["case_id"] for u in payload["units"] for c in u["cases"]], "cases")
     _unique([q["id"] for q in payload["questions"]], "questions")
@@ -201,8 +216,16 @@ def compile_analysis(source: dict, payload: dict, *, provider_id: str, model_id:
     for disposition in dispositions:
         if (disposition["disposition"] == "covered") != (disposition["section_id"] in references):
             raise M1ValidationError("covered sections require unit references; noncovered sections cannot have unit references")
-    observations = payload["image_observations"]
+    # A whiteboard token is a text placeholder, not an attachment. Models
+    # sometimes list whiteboards in image_observations even though no pixels
+    # were supplied; drop those instead of failing the whole analysis. Unknown
+    # IDs are still rejected so an invented attachment cannot slip through.
+    observations = [
+        observation for observation in payload["image_observations"]
+        if observation["image_id"] in attachments or observation["image_id"] not in whiteboards
+    ]
     _unique([o["image_id"] for o in observations], "image_observations")
+    payload["image_observations"] = observations
     if any(o["image_id"] not in attachments for o in observations):
         raise M1ValidationError("image observation references an attachment not supplied to the model")
 
